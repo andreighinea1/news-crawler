@@ -1,5 +1,6 @@
 import json
 import time
+from collections import defaultdict
 
 from scrapy import signals, Spider
 from scrapy.crawler import CrawlerProcess
@@ -13,6 +14,7 @@ class BlogSpider(Spider):
     name = 'blog_spider'
 
     def __init__(self, base_url=None, article_locator_query=None, next_locator_query=None, *args, **kwargs):
+        self.base_url = base_url
         self.start_urls = [base_url]
         super(BlogSpider, self).__init__(*args, **kwargs)
         self.article_locator_query = article_locator_query
@@ -49,16 +51,18 @@ class ScrollableSpider(Spider):
             # Scroll down, while there's still new content loaded
             old_count = 0
             while True:
-                print(f"old_count={old_count}")
-
                 page.mouse.wheel(0, 15000)
                 time.sleep(2)
 
                 count = page.locator(self.article_locator_query).count()
+                print(f"count={count}")
                 if old_count == count:
                     break
                 old_count = count
                 time.sleep(1)
+
+                # if count >= 30:
+                #     break
 
             article_locator = page.locator(self.article_locator_query)
             count = article_locator.count()
@@ -75,36 +79,51 @@ class ScrollableSpider(Spider):
             context.close()
 
 
-def spider_results(spider_cls, *args, **kwargs):
-    results = []
+def get_results(*add_to_process_functions):
+    # Init results
+    temp_results = defaultdict(list)
 
     def crawler_results(signal, sender, item, response, spider):
-        results.append(item)
-
+        temp_results[spider.base_url].append(item)
     dispatcher.connect(crawler_results, signal=signals.item_scraped)
 
+    # Init and start process
     process = CrawlerProcess(get_project_settings())
-    process.crawl(spider_cls, *args, **kwargs)
+    for add_to_process_func in add_to_process_functions:
+        add_to_process_func(process)
     process.start()  # the script will block here until the crawling is finished
+
+    # Preprocess results
+    results = {
+        source: {
+            "Cnt": len(res_list),
+            "results": res_list
+        }
+        for source, res_list in temp_results.items()
+    }
+    del temp_results
+
+    # Save and return results
+    with open("results.json", "w") as fout:
+        json.dump(results, fout, indent=4)
     return results
 
 
-def get_bitdefender_results():
-    return spider_results(ScrollableSpider,
-                          base_url="https://www.bitdefender.com/blog/labs/",
-                          article_locator_query=".article-thumb__link")
+def add_bitdefender_to_process(process):
+    process.crawl(ScrollableSpider,
+                  base_url="https://www.bitdefender.com/blog/labs/",
+                  article_locator_query=".article-thumb__link")
 
 
-def get_zyte_results():
-    return spider_results(BlogSpider,
-                          base_url="https://www.zyte.com/blog/",
-                          article_locator_query=".oxy-post-title",
-                          next_locator_query="a.next")
+def add_zyte_results_to_process(process):
+    process.crawl(BlogSpider,
+                  base_url="https://www.zyte.com/blog/",
+                  article_locator_query=".oxy-post-title",
+                  next_locator_query="a.next")
 
 
 if __name__ == '__main__':
-    # res = get_bitdefender_results()
-    res = get_zyte_results()
-
-    print(json.dumps(res, indent=4))
-    print(f"len(res)={len(res)}")
+    get_results(
+        add_zyte_results_to_process,
+        add_bitdefender_to_process,
+    )
