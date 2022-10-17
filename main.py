@@ -10,8 +10,12 @@ from scrapy.signalmanager import dispatcher
 from playwright.sync_api import sync_playwright
 
 
+DOWNLOAD_DELAY = 0.25    # 250 ms of delay
+# TODO: Use https://doc.scrapy.org/en/latest/topics/autothrottle.html
+
+
 class BlogSpider(Spider):
-    name = 'blog_spider'
+    name = 'blog_next_spider'
 
     def __init__(self, base_url=None, article_locator_query=None, next_locator_query=None, *args, **kwargs):
         self.base_url = base_url
@@ -21,10 +25,10 @@ class BlogSpider(Spider):
         self.next_locator_query = next_locator_query
 
     def parse(self, response, **kwargs):
-        for title in response.css(self.article_locator_query):
+        for x in response.css(self.article_locator_query):
             yield {
-                'title': title.css('::text').get(),
-                'url': title.attrib['href'],
+                'title': x.css('::text').get(),
+                'url': x.attrib['href'],
             }
 
         for next_url in response.css(self.next_locator_query):
@@ -122,8 +126,16 @@ def add_zyte_results_to_process(process):
                   next_locator_query="a.next")
 
 
+def add_tomsguide_results_to_process(process):
+    process.crawl(BlogSpider,
+                  base_url="https://www.tomsguide.com/news/archive/",
+                  article_locator_query="li.day-article > a[href]",
+                  next_locator_query="ul.smaller.indented.basic-list > li > ul > li > a")
+
+
 if __name__ == '__main__':
     get_results(
         add_zyte_results_to_process,
         add_bitdefender_to_process,
+        add_tomsguide_results_to_process,
     )
