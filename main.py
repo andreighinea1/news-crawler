@@ -9,20 +9,30 @@ from scrapy.signalmanager import dispatcher
 
 from playwright.sync_api import sync_playwright
 
-
-DOWNLOAD_DELAY = 0.25    # 250 ms of delay
-# TODO: Use https://doc.scrapy.org/en/latest/topics/autothrottle.html
+from misc import sort_dict_by_keys
 
 
 class BlogSpider(Spider):
     name = 'blog_next_spider'
 
-    def __init__(self, base_url=None, article_locator_query=None, next_locator_query=None, *args, **kwargs):
+    # TODO: Use https://doc.scrapy.org/en/latest/topics/autothrottle.html
+    custom_settings = {
+        'DOWNLOAD_DELAY': 0.5,  # 500 ms of delay
+        'RANDOMIZE_DOWNLOAD_DELAY': True
+    }
+
+    def __init__(self,
+                 base_url=None,
+                 article_locator_query=None,
+                 next_locator_query=None,
+                 contains_text=None,
+                 *args, **kwargs):
         self.base_url = base_url
         self.start_urls = [base_url]
         super(BlogSpider, self).__init__(*args, **kwargs)
         self.article_locator_query = article_locator_query
         self.next_locator_query = next_locator_query
+        self.contains_text = contains_text
 
     def parse(self, response, **kwargs):
         for x in response.css(self.article_locator_query):
@@ -32,13 +42,24 @@ class BlogSpider(Spider):
             }
 
         for next_url in response.css(self.next_locator_query):
-            yield response.follow(next_url, self.parse)
+            if (not self.contains_text or
+                    next_url.css('::text').get() == self.contains_text):
+                yield response.follow(next_url, self.parse)
 
 
 class ScrollableSpider(Spider):
     name = 'scrollable_spider'
 
-    def __init__(self, base_url=None, article_locator_query=None, *args, **kwargs):
+    # TODO: Use https://doc.scrapy.org/en/latest/topics/autothrottle.html
+    custom_settings = {
+        'DOWNLOAD_DELAY': 0.5,  # 500 ms of delay
+        'RANDOMIZE_DOWNLOAD_DELAY': True
+    }
+
+    def __init__(self,
+                 base_url=None,
+                 article_locator_query=None,
+                 *args, **kwargs):
         self.start_urls = ["data:,"]  # avoid using the default Scrapy downloader
         super(ScrollableSpider, self).__init__(*args, **kwargs)
         self.base_url = base_url
@@ -85,10 +106,10 @@ class ScrollableSpider(Spider):
 
 def get_results(*add_to_process_functions):
     # Init results
-    temp_results = defaultdict(list)
+    temp_results = defaultdict(dict)
 
     def crawler_results(signal, sender, item, response, spider):
-        temp_results[spider.base_url].append(item)
+        temp_results[spider.base_url][item['url']] = item['title']  # Unique by url
     dispatcher.connect(crawler_results, signal=signals.item_scraped)
 
     # Init and start process
@@ -100,11 +121,12 @@ def get_results(*add_to_process_functions):
     # Preprocess results
     results = {
         source: {
-            "Cnt": len(res_list),
-            "results": res_list
+            "Cnt": len(res_dict),
+            "results": res_dict
         }
-        for source, res_list in temp_results.items()
+        for source, res_dict in temp_results.items()
     }
+    results = sort_dict_by_keys(results)
     del temp_results
 
     # Save and return results
@@ -113,10 +135,18 @@ def get_results(*add_to_process_functions):
     return results
 
 
-def add_bitdefender_to_process(process):
+def __add_bitdefender_scrollable_to_process(process):
     process.crawl(ScrollableSpider,
                   base_url="https://www.bitdefender.com/blog/labs/",
                   article_locator_query=".article-thumb__link")
+
+
+def add_bitdefender_to_process(process):
+    process.crawl(BlogSpider,
+                  base_url="https://www.bitdefender.com/blog/labs/tag/antimalware-research/",
+                  article_locator_query=".article-thumb__link",
+                  next_locator_query="a.button-view-all.button-view-all--tags.d-inline-block.mx-2",
+                  contains_text='›')
 
 
 def add_zyte_results_to_process(process):
@@ -135,7 +165,7 @@ def add_tomsguide_results_to_process(process):
 
 if __name__ == '__main__':
     get_results(
-        add_zyte_results_to_process,
         add_bitdefender_to_process,
         add_tomsguide_results_to_process,
+        add_zyte_results_to_process,
     )
