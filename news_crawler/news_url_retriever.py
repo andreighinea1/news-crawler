@@ -9,10 +9,13 @@ from scrapy.http import Response
 from scrapy.utils.project import get_project_settings
 from scrapy.signalmanager import dispatcher
 
+from news_crawler import misc
 from news_crawler.misc import sort_dict_by_keys
 from news_crawler.spiders.blog_spider import BlogSpider
 
 # TODO-URGENT: Do something about JavaScript loaded webpages
+# docker pull scrapinghub/splash
+# docker run -p 8050:8050 scrapinghub/splash
 
 # TODO: Use https://doc.scrapy.org/en/latest/topics/autothrottle.html
 
@@ -22,9 +25,9 @@ def get_results(*add_to_process_functions):
     temp_results = defaultdict(dict)
 
     def crawler_results(signal, sender, item, response, spider):
-        temp_results[spider.base_url][item['url']] = {  # Unique by url
-            'title': item['title'],
-            'content': item['content'],
+        url = item.pop('url')
+        temp_results[spider.base_url][url] = {  # Unique by url
+            **item
         }
 
     dispatcher.connect(crawler_results, signal=signals.item_scraped)
@@ -39,7 +42,7 @@ def get_results(*add_to_process_functions):
     results = {
         source: {
             "Cnt": len(res_dict),
-            "results": res_dict
+            "results": misc.sort_dict_by_keys(res_dict)
         }
         for source, res_dict in temp_results.items()
     }
@@ -83,9 +86,17 @@ def add_tomsguide_results_to_process(process):
                   next_locator_query="ul.smaller.indented.basic-list > li > ul > li > a")
 
 
+# def add_custom_tomsguide_results_to_process(process):
+#     process.crawl(BlogSpider,
+#                   base_url="https://www.tomsguide.com/news/archive/2008/11",
+#                   article_locator_query="li.day-article > a[href]",
+#                   content_locator_query_list="section.content-wrapper > div#article-body",
+#                   next_locator_query="ul.smaller.indented.basic-list > li > ul > li > a")
+
+
 if __name__ == '__main__':
     get_results(
         # add_bitdefender_to_process,
-        add_tomsguide_results_to_process,  # TODO: Remove text from 'aside' tags
-        # add_zyte_results_to_process,
+        # add_tomsguide_results_to_process,  # TODO: Remove text from 'aside' tags
+        add_zyte_results_to_process,
     )
