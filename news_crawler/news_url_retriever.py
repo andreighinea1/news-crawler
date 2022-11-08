@@ -96,7 +96,7 @@ def add_tomsguide_results_to_process(process):
 
 if __name__ == '__main__':
     get_results(
-        # add_bitdefender_to_process,
-        # add_tomsguide_results_to_process,  # TODO: Remove text from 'aside' tags
+        add_bitdefender_to_process,
+        add_tomsguide_results_to_process,  # TODO: Remove text from 'aside' tags
         add_zyte_results_to_process,
     )
