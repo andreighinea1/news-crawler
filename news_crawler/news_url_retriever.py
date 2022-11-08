@@ -16,6 +16,7 @@ from news_crawler.spiders.blog_spider import BlogSpider
 # TODO-URGENT: Do something about JavaScript loaded webpages
 # docker pull scrapinghub/splash
 # docker run -p 8050:8050 scrapinghub/splash
+# docker run -it -p 8050:8050 scrapinghub/splash --max-timeout 3600
 
 # TODO: Use https://doc.scrapy.org/en/latest/topics/autothrottle.html
 

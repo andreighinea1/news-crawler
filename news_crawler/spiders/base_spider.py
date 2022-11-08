@@ -16,19 +16,12 @@ class BaseSpider(Spider, ABC):
 
         return SplashRequest(url, parse_func,
                              args={
-                                 # optional; parameters passed to Splash HTTP API
                                  'wait': 0.5,
-
-                                 # 'url' is prefilled from request url
-                                 # 'http_method' is set to 'POST' for POST requests
-                                 # 'body' is set to request body for POST requests
-
-                                 'html': 1,
+                                 'timeout': 90,
+                                 'images': 0,
+                                 'resource_timeout': 20,
                              },
-                             endpoint='render.json',  # optional; default is render.html
-                             # splash_url='<url>',  # optional; overrides SPLASH_URL
-                             # slot_policy=scrapy_splash.SlotPolicy.PER_DOMAIN,  # optional
-
+                             # endpoint='render.json',  # optional; default is render.html
                              meta=meta
                              )
 

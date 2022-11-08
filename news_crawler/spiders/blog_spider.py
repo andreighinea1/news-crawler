@@ -68,18 +68,16 @@ class BlogSpider(BaseSpider):
             meta = {
                 'title': a.css('::text').get().strip(),
                 'url': url,
-                'delay_retries_by': 10,
+                'delay_retries_by': self.settings.getfloat('RETRY_DELAY'),
             }
 
             if 'FOLLOW_STATIC' not in kwargs:
-                yield self.follow_dynamically(response, self.content_parse, url=url,
-                                              meta=meta)
+                yield self.follow_dynamically(response, self.content_parse, url=url, meta=meta)
             else:
-                yield response.follow(href, self.content_parse,
-                                      meta=meta)
+                yield response.follow(href, self.content_parse, meta=meta)
 
         meta = {
-            'delay_retries_by': 10,
+            'delay_retries_by': self.settings.getfloat('RETRY_DELAY'),
         }
         for next_href in response.css(self.next_locator_query):
             if (not self.next_contains_text or
