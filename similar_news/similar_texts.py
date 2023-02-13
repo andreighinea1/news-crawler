@@ -130,8 +130,8 @@ class NewsPage:
             num_perm (int):
                 The number of permutations for a MinHash.
         Returns:
-            SimilarTexts:
-                The initialized similarity class
+            NewsPage:
+                The initialized news page class
         """
 
         self.title = news_page_dict['title']
@@ -168,18 +168,20 @@ class NewsPage:
 
 
 class SimilarTexts:
-    def __init__(self, database_path, num_perm, *, parameters=None, shingles_unique=True):
+    def __init__(self, results_path, *, threshold=0.6, num_perm=128, parameters=None, shingles_unique=True):
         """
         Text similarity of a string with a database of other strings using MinHash and LSH.
 
         Args:
-            database_path (str):
+            results_path (str):
                 The path to a JSON "database", of format:
                     {base_url: {'Cnt': Cnt, 'results': {news_url: {'title': str, 'content': str,
                     'contained_urls': {URL: URL_TITLE}}}}}
                 That after processing has the format:
                     {news_url: {'title': str, 'content': str,
                     'contained_urls': {URL: URL_TITLE}}}
+            threshold (float):
+                Between [0, 1]. The minimum similarity to use when clustering (in LSH).
             num_perm (int):
                 The number of permutations for a MinHash.
             parameters (Dict[str, list]):
@@ -200,17 +202,53 @@ class SimilarTexts:
 
         self.shingles_calc = ShinglesCalc(shingles_unique=shingles_unique,
                                           parameters=parameters)
+        self.threshold = threshold
+        self.num_perm = num_perm
 
-        with open(database_path, 'r') as fin:
+        with open(results_path, 'r') as fin:
             results = json.load(fin)
-            self.database = dict(sum([
+            self.database: Dict[str, NewsPage] = dict(sum([
                 [
                     (news_url, NewsPage(news_page_dict,
                                         news_url=news_url,
                                         shingles_calc=self.shingles_calc,
-                                        num_perm=num_perm))
+                                        num_perm=self.num_perm))
                     for news_url, news_page_dict in results_per_site['results'].items()
                 ] for results_per_site in results.values()
             ], []))
 
-    def __get_minhash(self, news_page):
+        self.__calc_lsh()
+
+    def __calc_lsh(self):
+        """
+        Uses the already calculated `MinHashes <https://ekzhu.com/datasketch/minhash.html>`_
+        to create the `LSH <https://ekzhu.com/datasketch/lsh.html>`_.
+
+        Returns:
+            MinHashLSH:
+                The created LSH.
+        """
+        self.lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
+        with self.lsh.insertion_session() as session:
+            for news_url, news_page in self.database.items():
+                session.insert(news_url, news_page.minhash)
+
+        return self.lsh
+
+    def get_similar_news(self, news_page_dict, news_url):
+        news_page = NewsPage(news_page_dict,
+                             news_url=news_url,
+                             shingles_calc=self.shingles_calc,
+                             num_perm=self.num_perm)
+        return self.lsh.query(news_page.minhash)
+
+
+if __name__ == '__main__':
+    similar_texts = SimilarTexts(results_path='../news_crawler/results.json',
+                                 threshold=0.6,
+                                 num_perm=128,
+                                 parameters={
+                                     'title': [(2, 3), 'WORDS'],
+                                     'content': [(5, 7), 'WORDS'],
+                                     'contained_urls': [(3, 4), 'WORDS']
+                                 })
