@@ -1,5 +1,7 @@
 import json
+import logging
 import re
+import time
 
 from datasketch import MinHash, MinHashLSH, LeanMinHash
 from typing import Tuple, List, Dict, Any
@@ -8,16 +10,18 @@ words_regex = re.compile(r'\W+')
 
 
 class ShinglesCalc:
-    def __init__(self, parameters, *, shingles_unique=True):
+    def __init__(self, parameters, *, shingles_unique=True, case_sensitive=False):
         """
         Calculates the MinHash for the news page.
 
         Args:
-            shingles_unique (bool):
-                Should the shingles be unique?
             parameters (Dict[str, list]):
                 The dict used for selecting what types of shingles enter the MinHash, of format:
                     {news_page_dict__key: [(start_range, end_range), 'WORDS']}
+            shingles_unique (bool):
+                Should the shingles be unique?
+            case_sensitive (bool):
+                Should the shingles be case-sensitive?
         Returns:
             SimilarTexts:
                 The initialized similarity class
@@ -25,6 +29,7 @@ class ShinglesCalc:
 
         self.parameters = parameters
         self.shingles_unique = shingles_unique
+        self.case_sensitive = case_sensitive
 
     def create_all_shingles(self, str_dict_to_shingle):
         """
@@ -77,6 +82,8 @@ class ShinglesCalc:
         Returns:
             List[str]: The list of shingles created.
         """
+        if not self.case_sensitive:
+            text = text.lower()
 
         shingles = []
         for shingle_length in range(shingle_range[0], shingle_range[1] + 1):
@@ -92,6 +99,9 @@ class ShinglesCalc:
         Returns:
             List[str]: The list of words created.
         """
+        if not self.case_sensitive:
+            text = text.lower()
+
         shingles = words_regex.split(text)
         shingles = [s for s in shingles if s != '']
         if self.shingles_unique:
@@ -143,7 +153,7 @@ class NewsPage:
 
         self.shingle_list = shingles_calc.create_all_shingles(str_dict_to_shingle={
             **news_page_dict,
-            'contained_urls': sum(news_page_dict['contained_urls'].keys(), '')
+            'contained_urls': ''.join(news_page_dict['contained_urls'].keys())
         })
         self.minhash = self.__calc_minhash(shingle_list=self.shingle_list)
 
@@ -168,7 +178,8 @@ class NewsPage:
 
 
 class SimilarTexts:
-    def __init__(self, results_path, *, threshold=0.6, num_perm=128, parameters=None, shingles_unique=True):
+    def __init__(self, results_path, *, threshold=0.6, num_perm=128, parameters=None,
+                 shingles_unique=True, case_sensitive=False):
         """
         Text similarity of a string with a database of other strings using MinHash and LSH.
 
@@ -189,6 +200,8 @@ class SimilarTexts:
                     {news_page_dict__key: [(start_range, end_range), 'WORDS']}
             shingles_unique (bool):
                 Should the shingles be unique?
+            case_sensitive (bool):
+                Should the shingles be case-sensitive?
         Returns:
             SimilarTexts:
                 The initialized similarity class
@@ -201,11 +214,15 @@ class SimilarTexts:
             }
 
         self.shingles_calc = ShinglesCalc(shingles_unique=shingles_unique,
+                                          case_sensitive=case_sensitive,
                                           parameters=parameters)
         self.threshold = threshold
         self.num_perm = num_perm
 
         with open(results_path, 'r') as fin:
+            logging.info('Started loading the database and calculating the minhashes')
+            start_time = time.time()
+
             results = json.load(fin)
             self.database: Dict[str, NewsPage] = dict(sum([
                 [
@@ -216,6 +233,8 @@ class SimilarTexts:
                     for news_url, news_page_dict in results_per_site['results'].items()
                 ] for results_per_site in results.values()
             ], []))
+
+            logging.info(f'It took {time.time() - start_time: .3f} seconds to load the database.')
 
         self.__calc_lsh()
 
@@ -228,27 +247,49 @@ class SimilarTexts:
             MinHashLSH:
                 The created LSH.
         """
+        logging.info('Started calculating lsh')
+        start_time = time.time()
+
         self.lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
         with self.lsh.insertion_session() as session:
             for news_url, news_page in self.database.items():
                 session.insert(news_url, news_page.minhash)
+        logging.info(f'It took {time.time() - start_time: .3f} seconds to build the lsh.')
 
         return self.lsh
 
-    def get_similar_news(self, news_page_dict, news_url):
+    def get_similar_news(self, news_url, news_title=None, news_content=None, news_contained_urls=None):
+        """
+        Get the news that are similar to the provided news info.
+
+        Args:
+            news_url (Optional[str]):
+                The news website's URL.
+            news_title (Optional[str]):
+                The news website's title.
+            news_content (Optional[str]):
+                The news website's content.
+            news_contained_urls (Optional[Dict[str, str]]):
+                The news website's contained URLs.
+        Returns:
+            MinHashLSH:
+                The created LSH.
+        """
+        if not news_title:
+            news_title = ''
+        if not news_content:
+            news_content = ''
+        if not news_contained_urls:
+            news_contained_urls = dict()
+
+        news_page_dict = {
+            'title': news_title,
+            'content': news_content,
+            'contained_urls': news_contained_urls,
+        }
+
         news_page = NewsPage(news_page_dict,
                              news_url=news_url,
                              shingles_calc=self.shingles_calc,
                              num_perm=self.num_perm)
         return self.lsh.query(news_page.minhash)
-
-
-if __name__ == '__main__':
-    similar_texts = SimilarTexts(results_path='../news_crawler/results.json',
-                                 threshold=0.6,
-                                 num_perm=128,
-                                 parameters={
-                                     'title': [(2, 3), 'WORDS'],
-                                     'content': [(5, 7), 'WORDS'],
-                                     'contained_urls': [(3, 4), 'WORDS']
-                                 })
