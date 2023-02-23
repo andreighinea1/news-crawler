@@ -1,0 +1,9 @@
+{
+    "nav": {
+        "searchMenu": {
+            "menu": "Search Menu",
+            "searchSimilarNews": "Search Similar News",
+            "queryHistory": "Query History"
+        }
+    }
+}

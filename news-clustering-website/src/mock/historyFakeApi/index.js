@@ -1,0 +1,1 @@
+export { default as queryHistoryFakeApi } from './queryHistoryFakeApi'
