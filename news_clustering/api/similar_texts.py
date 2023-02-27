@@ -125,16 +125,16 @@ class ShinglesCalc:
 
 
 class NewsPage:
-    def __init__(self, news_page_dict, news_url, shingles_calc, *, num_perm=128):
+    def __init__(self, news_url, news_page_dict, shingles_calc, *, num_perm=128):
         """
         Calculates the MinHash for the news page.
 
         Args:
+            news_url (str):
+                The news website URL.
             news_page_dict (Dict[str, Any]):
                 The news page dict, of format:
                     {'title': str, 'content': str, 'contained_urls': {URL: URL_TITLE}}
-            news_url (str):
-                The news website URL.
             shingles_calc (ShinglesCalc):
                 The initialized ShinglesCalc object.
             num_perm (int):
@@ -190,12 +190,18 @@ class NewsPage:
 
 
 class SimilarTexts:
-    def __init__(self, results_path, *, threshold=0.6, num_perm=128, parameters=None,
+    def __init__(self, news_json_obj=None, *, results_path=None, threshold=0.6, num_perm=128, parameters=None,
                  shingles_unique=True, case_sensitive=False):
         """
         Text similarity of a string with a database of other strings using MinHash and LSH.
 
         Args:
+            news_json_obj (Dict[str, Dict[str, Any]]):
+                The loaded news JSON object, of format:
+                    {news_url: {'title': str, 'content': str,
+                    'contained_urls': {URL: URL_TITLE}}}
+
+                If None, results_path must not be None.
             results_path (str):
                 The path to a JSON "database", of format:
                     {base_url: {'Cnt': Cnt, 'results': {news_url: {'title': str, 'content': str,
@@ -203,6 +209,8 @@ class SimilarTexts:
                 That after processing has the format:
                     {news_url: {'title': str, 'content': str,
                     'contained_urls': {URL: URL_TITLE}}}
+
+                If None, database must not be None.
             threshold (float):
                 Between [0, 1]. The minimum similarity to use when clustering (in LSH).
             num_perm (int):
@@ -218,6 +226,9 @@ class SimilarTexts:
             SimilarTexts:
                 The initialized similarity class
         """
+        if not news_json_obj and not results_path:
+            raise Exception("One of `news_json_obj` or `results_path` must not be None and have something in them")
+
         if parameters is None:
             parameters = {
                 'title': [(2, 3), 'WORDS'],
@@ -231,24 +242,36 @@ class SimilarTexts:
         self.threshold = threshold
         self.num_perm = num_perm
 
-        with open(results_path, 'r') as fin:
-            logging.info('Started loading the database and calculating the minhashes')
-            start_time = time.time()
+        if news_json_obj:
+            self.database: Dict[str, NewsPage] = {
+                news_url: NewsPage(news_url=news_url,
+                                   news_page_dict=news_page_dict,
+                                   shingles_calc=self.shingles_calc,
+                                   num_perm=self.num_perm)
+                for news_url, news_page_dict in news_json_obj.items()
+            }
+            logging.info('Loaded the database')
+        elif results_path:
+            with open(results_path, 'r') as fin:
+                logging.info('Started loading the database and calculating the minhashes')
+                start_time = time.time()
 
-            results = json.load(fin)
-            self.database: Dict[str, NewsPage] = dict(sum([
-                [
-                    (news_url, NewsPage(news_page_dict,
-                                        news_url=news_url,
-                                        shingles_calc=self.shingles_calc,
-                                        num_perm=self.num_perm))
-                    for news_url, news_page_dict in results_per_site['results'].items()
-                ] for results_per_site in results.values()
-            ], []))
+                results = json.load(fin)
+                self.database: Dict[str, NewsPage] = dict(sum([
+                    [
+                        (news_url, NewsPage(news_url=news_url,
+                                            news_page_dict=news_page_dict,
+                                            shingles_calc=self.shingles_calc,
+                                            num_perm=self.num_perm))
+                        for news_url, news_page_dict in results_per_site['results'].items()
+                    ] for results_per_site in results.values()
+                ], []))
 
-            logging.info(f'It took {time.time() - start_time: .3f} seconds to load the database.')
+                logging.info(f'It took {time.time() - start_time: .3f} seconds to load the database.')
 
         self.__calc_lsh()
+
+        self.__init_clusterization()
 
     def __calc_lsh(self):
         """
@@ -270,6 +293,43 @@ class SimilarTexts:
 
         return self.lsh
 
+    def __get_news_page_from_info(self, news_url, news_title=None, news_content=None, news_contained_urls=None):
+        """
+        Gets a NewsPage object from news info.
+
+        Args:
+            news_url (str):
+                The news website's URL.
+            news_title (Optional[str]):
+                The news website's title.
+            news_content (Optional[str]):
+                The news website's content.
+            news_contained_urls (Optional[Dict[str, str]]):
+                The news website's contained URLs.
+        Returns:
+            NewsPage:
+                The created NewsPage object.
+        """
+        if not news_title:
+            news_title = ''
+        if not news_content:
+            news_content = ''
+        if not news_contained_urls:
+            news_contained_urls = dict()
+
+        news_page_dict = {
+            'title': news_title,
+            'content': news_content,
+            'contained_urls': news_contained_urls,
+        }
+
+        news_page = NewsPage(news_url=news_url,
+                             news_page_dict=news_page_dict,
+                             shingles_calc=self.shingles_calc,
+                             num_perm=self.num_perm)
+
+        return news_page
+
     def get_similar_news(self, news_url, news_title=None, news_content=None, news_contained_urls=None):
         """
         Get the news that are similar to the provided news info.
@@ -287,25 +347,45 @@ class SimilarTexts:
             Dict[str, float]:
                 A dict with keys as the similar news URLs, and the values the jaccard distances to those URLs web pages.
         """
-        if not news_title:
-            news_title = ''
-        if not news_content:
-            news_content = ''
-        if not news_contained_urls:
-            news_contained_urls = dict()
 
-        news_page_dict = {
-            'title': news_title,
-            'content': news_content,
-            'contained_urls': news_contained_urls,
-        }
+        news_page = self.__get_news_page_from_info(news_url=news_url,
+                                                   news_title=news_title,
+                                                   news_content=news_content,
+                                                   news_contained_urls=news_contained_urls)
 
-        news_page = NewsPage(news_page_dict,
-                             news_url=news_url,
-                             shingles_calc=self.shingles_calc,
-                             num_perm=self.num_perm)
         similar_news = self.lsh.query(news_page.minhash)
         return {
             similar_news_url: self.database[similar_news_url].jaccard(news_page)
             for similar_news_url in similar_news
         }
+
+    def add_to_database(self, news_url, news_title=None, news_content=None, news_contained_urls=None,
+                        *, reinit_clusterization=True):
+        """
+        Add 1 new news to the database.
+
+        Args:
+            news_url (str):
+                The news website's URL.
+            news_title (Optional[str]):
+                The news website's title.
+            news_content (Optional[str]):
+                The news website's content.
+            news_contained_urls (Optional[Dict[str, str]]):
+                The news website's contained URLs.
+            reinit_clusterization (Optional[bool]):
+                Should reinitialize the clusterization after adding to the db?
+        """
+
+        self.database[news_url] = self.__get_news_page_from_info(news_url=news_url,
+                                                                 news_title=news_title,
+                                                                 news_content=news_content,
+                                                                 news_contained_urls=news_contained_urls)
+
+        if reinit_clusterization:
+            self.__init_clusterization()
+
+        return
+
+    def __init_clusterization(self):
+        self.clustered = False

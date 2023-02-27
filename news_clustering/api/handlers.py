@@ -3,8 +3,8 @@ from sanic import response
 from news_clustering.api.similar_texts import SimilarTexts
 
 MAX_QUERY_LEN = 16
-similar_texts = SimilarTexts(results_path='../news_crawler/results.json',
-                             threshold=0.6,
+similar_texts = SimilarTexts(
+    threshold=0.6,
                              num_perm=128,
                              parameters={
                                  'title': [(2, 3), 'WORDS'],

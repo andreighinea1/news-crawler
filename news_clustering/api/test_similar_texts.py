@@ -13,8 +13,8 @@ if __name__ == '__main__':
         ]
     )
 
-    similar_texts = SimilarTexts(results_path='../news_crawler/results.json',
-                                 threshold=0.6,
+    similar_texts = SimilarTexts(
+        threshold=0.6,
                                  num_perm=128,
                                  parameters={
                                      'title': [(2, 3), 'WORDS'],
