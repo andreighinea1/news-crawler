@@ -242,6 +242,15 @@ class SimilarTexts:
         self.threshold = threshold
         self.num_perm = num_perm
 
+        # Initialize the object for clusterization (same as self.__init_clusterization())
+        self.fitted_clustering = False
+        self.clusters = None
+
+        # Initialize the object for LSH similarity queries (same as self.__init_similarity())
+        self.fitted_similarity = False
+        self.lsh = None
+
+        # Init the database
         if news_json_obj:
             self.database: Dict[str, NewsPage] = {
                 news_url: NewsPage(news_url=news_url,
@@ -269,30 +278,7 @@ class SimilarTexts:
 
                 logging.info(f'It took {time.time() - start_time: .3f} seconds to load the database.')
 
-        self.__calc_lsh()
-
-        self.__init_clusterization()
-
-    def __calc_lsh(self):
-        """
-        Uses the already calculated `MinHashes <https://ekzhu.com/datasketch/minhash.html>`_
-        to create the `LSH <https://ekzhu.com/datasketch/lsh.html>`_.
-
-        Returns:
-            MinHashLSH:
-                The created LSH.
-        """
-        logging.info('Started calculating lsh')
-        start_time = time.time()
-
-        self.lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
-        with self.lsh.insertion_session() as session:
-            for news_url, news_page in self.database.items():
-                session.insert(news_url, news_page.minhash)
-        logging.info(f'It took {time.time() - start_time: .3f} seconds to build the lsh.')
-
-        return self.lsh
-
+    # region HELPERS
     def __get_news_page_from_info(self, news_url, news_title=None, news_content=None, news_contained_urls=None):
         """
         Gets a NewsPage object from news info.
@@ -323,12 +309,84 @@ class SimilarTexts:
             'contained_urls': news_contained_urls,
         }
 
-        news_page = NewsPage(news_url=news_url,
-                             news_page_dict=news_page_dict,
-                             shingles_calc=self.shingles_calc,
-                             num_perm=self.num_perm)
+        return NewsPage(news_url=news_url,
+                        news_page_dict=news_page_dict,
+                        shingles_calc=self.shingles_calc,
+                        num_perm=self.num_perm)
 
-        return news_page
+    def add_to_database(self, news_url, news_title=None, news_content=None, news_contained_urls=None,
+                        *, reinit_clusterization=True, reinit_similarity=True):
+        """
+        Add 1 new news to the database.
+
+        Args:
+            news_url (str):
+                The news website's URL.
+            news_title (Optional[str]):
+                The news website's title.
+            news_content (Optional[str]):
+                The news website's content.
+            news_contained_urls (Optional[Dict[str, str]]):
+                The news website's contained URLs.
+            reinit_clusterization (Optional[bool]):
+                Should reinitialize the clusterization fitting after adding to the db?
+            reinit_similarity (Optional[bool]):
+                Should reinitialize the similarity fitting after adding to the db?
+        """
+
+        self.database[news_url] = self.__get_news_page_from_info(news_url=news_url,
+                                                                 news_title=news_title,
+                                                                 news_content=news_content,
+                                                                 news_contained_urls=news_contained_urls)
+
+        if reinit_clusterization:
+            self.__init_clusterization()
+        if reinit_similarity:
+            self.__init_similarity()
+        return
+
+    # endregion HELPERS
+
+    # region INIT
+    def __init_clusterization(self):
+        """
+        Initialize the object for clusterization.
+        """
+        self.fitted_clustering = False
+        self.clusters = None
+        return
+
+    def __init_similarity(self):
+        """
+        Initialize the object for LSH similarity queries.
+        """
+        self.fitted_similarity = False
+        self.lsh = None
+        return
+
+    # endregion INIT
+
+    # region SIMILARITY
+    def fit_similarity(self):
+        """
+        Uses the already calculated `MinHashes <https://ekzhu.com/datasketch/minhash.html>`_
+        to create the `LSH <https://ekzhu.com/datasketch/lsh.html>`_.
+
+        Returns:
+            SimilarTexts:
+                The fitted SimilarTexts self.
+        """
+        logging.info('Started calculating lsh')
+        start_time = time.time()
+
+        self.lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
+        with self.lsh.insertion_session() as session:
+            for news_url, news_page in self.database.items():
+                session.insert(news_url, news_page.minhash)
+        logging.info(f'It took {time.time() - start_time: .3f} seconds to build the lsh.')
+
+        self.fitted_similarity = True
+        return self
 
     def get_similar_news(self, news_url, news_title=None, news_content=None, news_contained_urls=None):
         """
@@ -348,6 +406,11 @@ class SimilarTexts:
                 A dict with keys as the similar news URLs, and the values the jaccard distances to those URLs web pages.
         """
 
+        if not self.fitted_similarity:
+            logging.error("LSH Similarity wasn't fitted. "
+                          "Please call fit_similarity() before trying to get the similar news!")
+            return dict()
+
         news_page = self.__get_news_page_from_info(news_url=news_url,
                                                    news_title=news_title,
                                                    news_content=news_content,
@@ -359,33 +422,4 @@ class SimilarTexts:
             for similar_news_url in similar_news
         }
 
-    def add_to_database(self, news_url, news_title=None, news_content=None, news_contained_urls=None,
-                        *, reinit_clusterization=True):
-        """
-        Add 1 new news to the database.
-
-        Args:
-            news_url (str):
-                The news website's URL.
-            news_title (Optional[str]):
-                The news website's title.
-            news_content (Optional[str]):
-                The news website's content.
-            news_contained_urls (Optional[Dict[str, str]]):
-                The news website's contained URLs.
-            reinit_clusterization (Optional[bool]):
-                Should reinitialize the clusterization after adding to the db?
-        """
-
-        self.database[news_url] = self.__get_news_page_from_info(news_url=news_url,
-                                                                 news_title=news_title,
-                                                                 news_content=news_content,
-                                                                 news_contained_urls=news_contained_urls)
-
-        if reinit_clusterization:
-            self.__init_clusterization()
-
-        return
-
-    def __init_clusterization(self):
-        self.clustered = False
+    # endregion SIMILARITY
