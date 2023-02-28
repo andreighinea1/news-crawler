@@ -152,9 +152,9 @@ class NewsPage:
                 The initialized news page class
         """
 
-        self.title = news_page_dict['title']
-        self.content = news_page_dict['content']
-        self.contained_urls = news_page_dict['contained_urls']
+        self.news_title = news_page_dict['title']
+        self.news_content = news_page_dict['content']
+        self.news_contained_urls = news_page_dict['contained_urls']
 
         self.news_url = news_url
         self.num_perm = num_perm
@@ -202,7 +202,9 @@ class NewsPage:
 
 class SimilarTexts:
     def __init__(self, news_json_obj=None, *, results_path=None,
-                 threshold=0.6, num_perm=128, min_samples=3, eps=0.6, parameters=None,
+                 threshold=0.6, num_perm=128, min_samples=3, eps=0.6,
+                 predominant_cluster_min_percentage=0.6,
+                 parameters=None,
                  folder_out_path='OUT', overwrite=True, save_noise_points=False,
                  shingles_unique=True, case_sensitive=False):
         """
@@ -232,6 +234,8 @@ class SimilarTexts:
                 The minimum number of samples to use when clustering with DBSCAN.
             eps (float):
                 Between [0, 1]. The max distance to use when clustering with DBSCAN.
+            predominant_cluster_min_percentage (float):
+                Between [0, 1]. Min percentage to declare that a key is from a similar cluster.
             parameters (Dict[str, list]):
                 The dict used for selecting what types of shingles enter the MinHash, of format:
                     {news_page_dict__key: [(start_range, end_range), 'WORDS']}
@@ -264,6 +268,8 @@ class SimilarTexts:
         self.fitted_clustering = False
         self.clusters = None
         self.noise_points = None
+        self.origin_points = None
+        self.key_to_cluster_index = None
 
         # Initialize the object for LSH similarity queries (same as self.__init_similarity())
         self.fitted_similarity = False
@@ -278,6 +284,7 @@ class SimilarTexts:
         self.num_perm = num_perm
         self.min_samples = min_samples
         self.eps = eps
+        self.predominant_cluster_min_percentage = predominant_cluster_min_percentage
         self.folder_out_path = folder_out_path
         self.overwrite = overwrite
         self.save_noise_points = save_noise_points
@@ -329,11 +336,11 @@ class SimilarTexts:
         Args:
             news_url (str):
                 The news website's URL.
-            news_title (Optional[str]):
-                The news website's title.
-            news_content (Optional[str]):
+            news_title (str):
+                The news website's news_title.
+            news_content (str):
                 The news website's content.
-            news_contained_urls (Optional[Dict[str, str]]):
+            news_contained_urls (Dict[str, str]):
                 The news website's contained URLs.
         Returns:
             NewsPage:
@@ -365,15 +372,15 @@ class SimilarTexts:
         Args:
             news_url (str):
                 The news website's URL.
-            news_title (Optional[str]):
-                The news website's title.
-            news_content (Optional[str]):
+            news_title (str):
+                The news website's news_title.
+            news_content (str):
                 The news website's content.
-            news_contained_urls (Optional[Dict[str, str]]):
+            news_contained_urls (Dict[str, str]):
                 The news website's contained URLs.
-            reinit_clusterization (Optional[bool]):
+            reinit_clusterization (bool):
                 Should reinitialize the clusterization fitting after adding to the db?
-            reinit_similarity (Optional[bool]):
+            reinit_similarity (bool):
                 Should reinitialize the similarity fitting after adding to the db?
         """
 
@@ -448,6 +455,8 @@ class SimilarTexts:
         self.fitted_clustering = False
         self.clusters = None
         self.noise_points = None
+        self.origin_points = None
+        self.key_to_cluster_index = None
         return
 
     def __init_similarity(self):
@@ -460,7 +469,7 @@ class SimilarTexts:
 
     # endregion INIT
 
-    # region SIMILARITY
+    # region FITTING
     def fit_similarity(self):
         """
         Uses the already calculated `MinHashes <https://ekzhu.com/datasketch/minhash.html>`_
@@ -482,43 +491,28 @@ class SimilarTexts:
         self.fitted_similarity = True
         return self
 
-    def get_similar_news(self, news_url, news_title=None, news_content=None, news_contained_urls=None):
+    def __get_key_to_cluster_index(self, clusters):
         """
-        Get the news that are similar to the provided news info.
+        Get the key_to_cluster_index used to find which cluster each key belongs to.
 
         Args:
-            news_url (Optional[str]):
-                The news website's URL.
-            news_title (Optional[str]):
-                The news website's title.
-            news_content (Optional[str]):
-                The news website's content.
-            news_contained_urls (Optional[Dict[str, str]]):
-                The news website's contained URLs.
+            clusters (List[List[str]]): The clusters of keys.
+
         Returns:
-            Dict[str, float]:
-                A dict with keys as the similar news URLs, and the values the jaccard distances to those URLs web pages.
+            Dict[str, int]: The key_to_cluster_index.
         """
+        # TODO: Make some changes to indexing to adapt to this new index
+        # current_date = datetime.today().strftime('%Y-%m-%d') + "_"
 
-        if not self.fitted_similarity:
-            logging.error("LSH Similarity wasn't fitted. "
-                          "Please call fit_similarity() before trying to get the similar news!")
-            return dict()
+        key_to_cluster_index = dict()
+        for i, cluster in enumerate(clusters):
+            for key in cluster:
+                key_to_cluster_index[key] = i
+                # key_to_cluster_index[key] = current_date + str(i)
 
-        news_page = self.__get_news_page_from_info(news_url=news_url,
-                                                   news_title=news_title,
-                                                   news_content=news_content,
-                                                   news_contained_urls=news_contained_urls)
+        self.save_to_pickles(data=key_to_cluster_index, fname=self.MAPPING_FNAME)
+        return key_to_cluster_index
 
-        similar_news = self.lsh.query(news_page.minhash)
-        return {
-            similar_news_url: self.database[similar_news_url].jaccard(news_page)
-            for similar_news_url in similar_news
-        }
-
-    # endregion SIMILARITY
-
-    # region CLUSTERING
     def fit_clustering(self, *, keep_database_in_memory=True, keep_lsh_in_memory=True):
         """
         Uses the already calculated `MinHashes <https://ekzhu.com/datasketch/minhash.html>`_
@@ -614,7 +608,6 @@ class SimilarTexts:
         self.save_to_pickles(data=clusters, fname=self.CLUSTERS_FNAME)
 
         logging.info(f'It took {(time.time() - start_time): .3f} seconds to get and save the clusters.')
-        # endregion Get the clusters and noise points
 
         # Print some statistics
         n_noise_ = list(labels).count(-1)
@@ -622,6 +615,7 @@ class SimilarTexts:
         logging.info(f"Number of clusters: {len(clusters)}")
         logging.info(f"Number of noise points: {n_noise_}")
         logging.info(f"Number of non-noise points: {n_OK_}")
+        # endregion Get the clusters and noise points
 
         # region REMOVE NOISE POINTS from database and lsh
         logging.info("Removing noise points from database and LSH...")
@@ -646,18 +640,160 @@ class SimilarTexts:
 
         logging.info(f'It took {(time.time() - start_time): .3f} seconds to remove the noise points.')
         # endregion REMOVE NOISE POINTS from database and lsh
-
         # endregion CLUSTERS
-
-        self.fitted_clustering = True
-        gc.collect()
 
         if not self.save_noise_points:
             noise_points = None
         self.clusters = clusters
         self.noise_points = noise_points
 
+        self.key_to_cluster_index = self.__get_key_to_cluster_index(self.clusters)
+
+        self.fitted_clustering = True
+
+        gc.collect()
+
         return self
 
+    # endregion FITTING
 
-    # endregion CLUSTERING
+    # region PREDICT
+    def get_similar_news(self, news_page=None,
+                         news_url=None, news_title=None, news_content=None, news_contained_urls=None):
+        """
+        Calculate and return the news that are similar to the provided news info.
+
+        Args:
+            news_page (NewsPage):
+                The news website's URL.
+            news_url (str):
+                The news website's URL.
+            news_title (str):
+                The news website's news_title.
+            news_content (str):
+                The news website's content.
+            news_contained_urls (Dict[str, str]):
+                The news website's contained URLs.
+        Returns:
+            Dict[str, float]:
+                A dict with keys as the similar news URLs, and the values the jaccard distances to those URLs web pages.
+        """
+
+        if not self.fitted_similarity:
+            logging.error("LSH Similarity wasn't fitted. "
+                          "Please call fit_similarity() before trying to get the similar news!")
+            return dict()
+
+        if not news_page:
+            news_page = self.__get_news_page_from_info(news_url=news_url,
+                                                       news_title=news_title,
+                                                       news_content=news_content,
+                                                       news_contained_urls=news_contained_urls)
+
+        similar_news = self.lsh.query(news_page.minhash)
+        res = {
+            similar_news_url: self.database[similar_news_url].jaccard(news_page)
+            for similar_news_url in similar_news
+        }
+        return res
+
+    def get_similar_clusters(self, news_page=None,
+                             news_url=None, news_title=None, news_content=None, news_contained_urls=None):
+        """
+        Calculate and return the list of similarities between the inputted NewsPage and the fitted clusters.
+
+        Args:
+            news_page (NewsPage):
+                The news website's URL.
+            news_url (str):
+                The news website's URL.
+            news_title (str):
+                The news website's news_title.
+            news_content (str):
+                The news website's content.
+            news_contained_urls (Dict[str, str]):
+                The news website's contained URLs.
+        Returns:
+            Dict[str, float]:
+                A dict with keys as the similar news URLs, and the values the jaccard distances to those URLs web pages.
+        """
+
+        if not self.fitted_similarity or not self.fitted_clustering:
+            logging.error("Error, both similarity and clustering must be fitted. "
+                          "Please call fit_similarity() and fit_clustering() "
+                          "before trying to get the similar clusters!")
+            return dict()
+
+        if not news_page:
+            news_page = self.__get_news_page_from_info(news_url=news_url,
+                                                       news_title=news_title,
+                                                       news_content=news_content,
+                                                       news_contained_urls=news_contained_urls)
+        key = news_page.news_url
+
+        # region FIND THE SIMILAR CLUSTERS
+        # Get the similar urls by querying the lsh
+        similar_news: Dict[str, float] = self.get_similar_news(news_page=news_page)
+        if len(similar_news) == 0:
+            logging.info(f"text_clustering-predict_single() - No cluster found that's similar to the key "
+                         f"'{key}' - No similar URLs")
+            return -1
+
+        # Find the counts for each of the clusters from each similar url
+        clusters_indices_counts: List[Tuple[int, int]] = Counter([
+            self.key_to_cluster_index[key]
+            for key in similar_news.keys()
+        ]).most_common()
+        # TODO: CONTINUE
+
+        # endregion FIND THE SIMILAR CLUSTERS
+
+        # region FIND THE CLUSTER INDEX
+        # Get the cluster associated to the given url
+        cluster_index = self.key_to_cluster_index.get(key, None)
+        if cluster_index is None:  # Not found in existing clusters, rebuild
+            # Choose the most predominant one
+            predominant_cluster_index, predominant_cluster_count = clusters_indices_counts[0]
+            # Check that the percentage the cluster is found is higher than the minimum from the config
+            if predominant_cluster_count / len(similar_news) > self.predominant_cluster_min_percentage:
+                logging.info(f"text_clustering-predict_single() - Found a cluster that has keys similar to "
+                             f"the key: {key}")
+                # If it is, then get the most predominant cluster
+                cluster_index = predominant_cluster_index
+            else:
+                logging.info(f"text_clustering-predict_single() - No cluster found that's similar to the key "
+                             f"'{key}' - Not predominant")
+                return -1
+        else:
+            logging.info(f"text_clustering-predict_single() - Found the cluster directly for the key '{key}'")
+        # endregion FIND THE CLUSTER INDEX
+
+        # Return the cluster index, usually for usage either with the clusters themselves, or with ClustersResults
+        return cluster_index
+
+    # def get_origin_points(self):
+    #     """
+    #     Calculate and return the origin points for the clustering.
+    #
+    #     Returns:
+    #         Dict[str, float]:
+    #             A dict with keys as the similar news URLs, and the values the .
+    #     """
+    #
+    #     if not self.fitted_similarity or not self.fitted_clustering:
+    #         logging.error("Error, both similarity and clustering must be fitted. "
+    #                       "Please call fit_similarity() and fit_clustering() "
+    #                       "before trying to get the origin points!")
+    #         return dict()
+    #
+    #     # news_page = self.__get_news_page_from_info(news_url=news_url,
+    #     #                                            news_title=news_title,
+    #     #                                            news_content=news_content,
+    #     #                                            news_contained_urls=news_contained_urls)
+    #     #
+    #     # similar_news = self.lsh.query(news_page.minhash)
+    #     # return {
+    #     #     similar_news_url: self.database[similar_news_url].jaccard(news_page)
+    #     #     for similar_news_url in similar_news
+    #     # }
+    # endregion PREDICT
