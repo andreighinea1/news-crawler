@@ -1,10 +1,18 @@
+import gc
 import json
 import logging
 import re
 import time
+from collections import defaultdict, Counter
+from typing import Tuple, List, Dict
 
+import joblib
+import numpy as np
 from datasketch import MinHash, MinHashLSH, LeanMinHash
-from typing import Tuple, List, Dict, Any
+from sklearn.cluster import DBSCAN
+from tqdm.auto import tqdm
+
+from news_clustering.api import misc
 
 words_regex = re.compile(r'\W+')
 
@@ -188,9 +196,14 @@ class NewsPage:
         """
         return self.minhash.jaccard(other.minhash)
 
+    def get_minhash(self):
+        return self.minhash
+
 
 class SimilarTexts:
-    def __init__(self, news_json_obj=None, *, results_path=None, threshold=0.6, num_perm=128, parameters=None,
+    def __init__(self, news_json_obj=None, *, results_path=None,
+                 threshold=0.6, num_perm=128, min_samples=3, eps=0.6, parameters=None,
+                 folder_out_path='OUT', overwrite=True, save_noise_points=False,
                  shingles_unique=True, case_sensitive=False):
         """
         Text similarity of a string with a database of other strings using MinHash and LSH.
@@ -212,12 +225,22 @@ class SimilarTexts:
 
                 If None, database must not be None.
             threshold (float):
-                Between [0, 1]. The minimum similarity to use when clustering (in LSH).
+                Between [0, 1]. The minimum similarity to use when finding LSH similarities.
             num_perm (int):
                 The number of permutations for a MinHash.
+            min_samples (int):
+                The minimum number of samples to use when clustering with DBSCAN.
+            eps (float):
+                Between [0, 1]. The max distance to use when clustering with DBSCAN.
             parameters (Dict[str, list]):
                 The dict used for selecting what types of shingles enter the MinHash, of format:
                     {news_page_dict__key: [(start_range, end_range), 'WORDS']}
+            folder_out_path (str):
+                The folder path where to write the model's output files.
+            overwrite (bool):
+                Overwrite the model's output files?
+            save_noise_points (bool):
+                Save the clustering noise points?
             shingles_unique (bool):
                 Should the shingles be unique?
             case_sensitive (bool):
@@ -229,6 +252,7 @@ class SimilarTexts:
         if not news_json_obj and not results_path:
             raise Exception("One of `news_json_obj` or `results_path` must not be None and have something in them")
 
+        # region DEFAULT INITS
         if parameters is None:
             parameters = {
                 'title': [(2, 3), 'WORDS'],
@@ -236,21 +260,43 @@ class SimilarTexts:
                 'contained_urls': [(3, 4), 'WORDS']
             }
 
+        # Initialize the object for clusterization (same as self.__init_clusterization())
+        self.fitted_clustering = False
+        self.clusters = None
+        self.noise_points = None
+
+        # Initialize the object for LSH similarity queries (same as self.__init_similarity())
+        self.fitted_similarity = False
+        self.lsh = None
+        # endregion DEFAULT INITS
+
+        # region INIT FROM PARAMS
         self.shingles_calc = ShinglesCalc(shingles_unique=shingles_unique,
                                           case_sensitive=case_sensitive,
                                           parameters=parameters)
         self.threshold = threshold
         self.num_perm = num_perm
+        self.min_samples = min_samples
+        self.eps = eps
+        self.folder_out_path = folder_out_path
+        self.overwrite = overwrite
+        self.save_noise_points = save_noise_points
+        # endregion INIT FROM PARAMS
 
-        # Initialize the object for clusterization (same as self.__init_clusterization())
-        self.fitted_clustering = False
-        self.clusters = None
+        # region FNAMES
+        self.DATABASE_FNAME = "database"
+        self.LSH_FNAME = "lsh"
+        self.MAPPING_FNAME = "key_to_cluster_index"
+        self.CLUSTERS_FNAME = "clusters"
+        self.XIN_TO_TEXTLIST_FNAME = "X_in__to__text_list"
+        # endregion FNAMES
 
-        # Initialize the object for LSH similarity queries (same as self.__init_similarity())
-        self.fitted_similarity = False
-        self.lsh = None
+        # region INIT THE DB
+        # TODO: Maybe if needed use multiprocessing here
 
-        # Init the database
+        logging.info('Started loading the database and calculating the minhashes')
+        start_time = time.time()
+
         if news_json_obj:
             self.database: Dict[str, NewsPage] = {
                 news_url: NewsPage(news_url=news_url,
@@ -259,12 +305,8 @@ class SimilarTexts:
                                    num_perm=self.num_perm)
                 for news_url, news_page_dict in news_json_obj.items()
             }
-            logging.info('Loaded the database')
         elif results_path:
             with open(results_path, 'r') as fin:
-                logging.info('Started loading the database and calculating the minhashes')
-                start_time = time.time()
-
                 results = json.load(fin)
                 self.database: Dict[str, NewsPage] = dict(sum([
                     [
@@ -276,7 +318,8 @@ class SimilarTexts:
                     ] for results_per_site in results.values()
                 ], []))
 
-                logging.info(f'It took {time.time() - start_time: .3f} seconds to load the database.')
+        logging.info(f'It took {time.time() - start_time: .3f} seconds to load the database.')
+        # endregion INIT THE DB
 
     # region HELPERS
     def __get_news_page_from_info(self, news_url, news_title=None, news_content=None, news_contained_urls=None):
@@ -345,6 +388,56 @@ class SimilarTexts:
             self.__init_similarity()
         return
 
+    def save_to_pickles(self, *, data, fname=None, full_file_path=None):
+        """
+        Save the data to a pickle file named fname.
+
+        Args:
+            data: The data to save.
+            fname (str): The file name. Saved at join(self.folder_out_path, fname).
+            full_file_path (str): The full file_path to save to. Ignores self.folder_out_path and fname.
+        """
+        misc.save_to_pickles(
+            data=data,
+            folder_path=self.folder_out_path,
+            fname=fname,
+            full_file_path=full_file_path,
+            overwrite=self.overwrite,
+        )
+
+    def load_from_pickles(self, *, fname=None, full_file_path=None):
+        """
+        Load data from a pickle file and return it.
+
+        Args:
+            fname (str): The file name. Loaded from join(self.folder_out_path, fname).
+            full_file_path (str): The full file_path to load from. Ignores self.folder_out_path and fname.
+
+        Returns:
+            The data loaded from the pickle file.
+        """
+        return misc.load_from_pickles(
+            folder_path=self.folder_out_path,
+            fname=fname,
+            full_file_path=full_file_path,
+        )
+
+    @staticmethod
+    def sort_clusters(clusters):
+        """
+        Sort a list of clusters.
+
+        Args:
+            clusters (List[List[str]]):
+                The list of clusters to sort.
+
+        Returns:
+            List[List[str]]:
+                The sorted list of clusters, first based on their length, then on content.
+        """
+        clusters = [sorted(cluster) for cluster in clusters]
+        return sorted(clusters, key=lambda x: (len(x), str(x)), reverse=True)
+
     # endregion HELPERS
 
     # region INIT
@@ -354,6 +447,7 @@ class SimilarTexts:
         """
         self.fitted_clustering = False
         self.clusters = None
+        self.noise_points = None
         return
 
     def __init_similarity(self):
@@ -423,3 +517,147 @@ class SimilarTexts:
         }
 
     # endregion SIMILARITY
+
+    # region CLUSTERING
+    def fit_clustering(self, *, keep_database_in_memory=True, keep_lsh_in_memory=True):
+        """
+        Uses the already calculated `MinHashes <https://ekzhu.com/datasketch/minhash.html>`_
+        of NewsPages to clusterize them together.
+
+        Args:
+            keep_database_in_memory (bool):
+                Should keep the database in RAM at the end of the fitting?
+            keep_lsh_in_memory (bool):
+                Should keep the LSH in RAM at the end of the fitting?
+        Returns:
+            SimilarTexts:
+                The fitted SimilarTexts self.
+        """
+
+        if self.fitted_similarity:
+            self.save_to_pickles(data=self.lsh, fname=self.LSH_FNAME)
+            del self.lsh
+            gc.collect()
+
+        # region minhashes mapping to text_list
+        X_in__to__text_list: Dict[Tuple[np.uint32], List[str]] = defaultdict(list)
+        for news_url, news_page in self.database.items():
+            X_in__to__text_list[tuple(news_page.get_minhash().hashvalues)].append(news_url)
+        self.save_to_pickles(data=X_in__to__text_list, fname=self.XIN_TO_TEXTLIST_FNAME)
+        del X_in__to__text_list
+        gc.collect()
+        # endregion minhashes mapping to text_list
+
+        # region X_in & Weights
+        minhashes_to_weights = dict(Counter([
+            tuple(news_page.get_minhash().hashvalues) for news_page in self.database.values()
+        ]).most_common())
+
+        self.save_to_pickles(data=self.database, fname=self.DATABASE_FNAME)
+        del self.database  # No longer needed for now
+        gc.collect()
+
+        X_in = np.vstack(list(minhashes_to_weights.keys()))
+        weights = np.array(list(minhashes_to_weights.values()))
+        del minhashes_to_weights
+        gc.collect()
+        # endregion X_in & Weights
+
+        # region DBSCAN FITTING
+        logging.info('Started fitting DBSCAN')
+        start_time = time.time()
+
+        with joblib.parallel_backend(backend='loky', n_jobs=- 1):
+            # TODO-OPTIMIZATION: "Precomputed sparse input was not sorted by data"
+            # noinspection PyTypeChecker
+            model: DBSCAN = DBSCAN(min_samples=self.min_samples, eps=self.eps,
+                                   metric='hamming', algorithm='ball_tree',
+                                   # algorithm is 'ball_tree' or 'brute' or 'auto'
+                                   n_jobs=-1).fit(X_in, sample_weight=weights)
+
+        logging.info(f'It took {time.time() - start_time: .3f} seconds to fit DBSCAN.')
+        # endregion DBSCAN FITTING
+
+        # region CLUSTERS
+        labels: np.ndarray = model.labels_
+        del model, weights
+        gc.collect()
+
+        # region Get the clusters and noise points
+        logging.info('Started getting the clusters')
+        start_time = time.time()
+
+        # Get the real clusters
+        X_in__to__text_list = self.load_from_pickles(fname=self.XIN_TO_TEXTLIST_FNAME)
+
+        def get_real_cluster(class_member_mask):  # TODO: Optimize this
+            real_cluster = sum((
+                X_in__to__text_list[tuple(xin)]
+                for xin in X_in[class_member_mask]
+            ), [])
+            return real_cluster
+
+        # Separate the clusters and noise points
+        # CLUSTERS
+        clusters = [
+            get_real_cluster(class_member_mask=(labels == k))
+            for k in set(labels)
+            if k != -1  # If it's not a noise point, or if yes, if we want to return them
+        ]
+        # NOISE POINTS
+        noise_points = get_real_cluster(class_member_mask=(labels == -1))
+        del X_in, X_in__to__text_list
+        gc.collect()
+
+        # Sort the clusters and maybe save them
+        clusters = self.sort_clusters(clusters)
+        self.save_to_pickles(data=clusters, fname=self.CLUSTERS_FNAME)
+
+        logging.info(f'It took {(time.time() - start_time): .3f} seconds to get and save the clusters.')
+        # endregion Get the clusters and noise points
+
+        # Print some statistics
+        n_noise_ = list(labels).count(-1)
+        n_OK_ = len(labels) - n_noise_
+        logging.info(f"Number of clusters: {len(clusters)}")
+        logging.info(f"Number of noise points: {n_noise_}")
+        logging.info(f"Number of non-noise points: {n_OK_}")
+
+        # region REMOVE NOISE POINTS from database and lsh
+        logging.info("Removing noise points from database and LSH...")
+        start_time = time.time()
+
+        self.database = self.load_from_pickles(fname=self.DATABASE_FNAME)  # Load it back at the end
+        for key in tqdm(noise_points, desc='Removing noise points from database'):
+            del self.database[key]
+        self.save_to_pickles(data=self.database, fname=self.DATABASE_FNAME)
+        if keep_database_in_memory:
+            del self.database
+            gc.collect()
+
+        if self.fitted_similarity:
+            self.lsh: MinHashLSH = self.load_from_pickles(fname=self.LSH_FNAME)
+            for key in tqdm(noise_points, desc='Removing noise points from lsh'):
+                self.lsh.remove(key)
+            self.save_to_pickles(data=self.lsh, fname=self.LSH_FNAME)
+            if keep_lsh_in_memory:
+                del self.lsh
+                gc.collect()
+
+        logging.info(f'It took {(time.time() - start_time): .3f} seconds to remove the noise points.')
+        # endregion REMOVE NOISE POINTS from database and lsh
+
+        # endregion CLUSTERS
+
+        self.fitted_clustering = True
+        gc.collect()
+
+        if not self.save_noise_points:
+            noise_points = None
+        self.clusters = clusters
+        self.noise_points = noise_points
+
+        return self
+
+
+    # endregion CLUSTERING
