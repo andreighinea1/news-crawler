@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from collections import defaultdict, Counter
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional, Any
 
 import joblib
 import numpy as np
@@ -15,6 +15,11 @@ from tqdm.auto import tqdm
 from news_clustering.api import misc
 
 words_regex = re.compile(r'\W+')
+DEFAULT_PARAMETERS = {
+    'title': [(2, 3), 'WORDS'],
+    'content': [(5, 7), 'WORDS'],
+    'contained_urls': [(3, 4)]
+}
 
 
 class ShinglesCalc:
@@ -133,7 +138,7 @@ class ShinglesCalc:
 
 
 class NewsPage:
-    def __init__(self, news_url, news_page_dict, shingles_calc, *, num_perm=128):
+    def __init__(self, news_url, news_page_dict, *, shingles_calc=None, num_perm=128):
         """
         Calculates the MinHash for the news page.
 
@@ -145,6 +150,7 @@ class NewsPage:
                     {'title': str, 'content': str, 'contained_urls': {URL: URL_TITLE}}
             shingles_calc (ShinglesCalc):
                 The initialized ShinglesCalc object.
+                If None, the object can only be used to retrieve the news_json_obj from the news_page_dict.
             num_perm (int):
                 The number of permutations for a MinHash.
         Returns:
@@ -152,18 +158,19 @@ class NewsPage:
                 The initialized news page class
         """
 
-        self.news_title = news_page_dict['title']
-        self.news_content = news_page_dict['content']
-        self.news_contained_urls = news_page_dict['contained_urls']
+        self.news_title = news_page_dict.get('title', '')
+        self.news_content = news_page_dict.get('content', '')
+        self.news_contained_urls = news_page_dict.get('contained_urls', dict())
 
         self.news_url = news_url
         self.num_perm = num_perm
 
-        self.shingle_list = shingles_calc.create_all_shingles(str_dict_to_shingle={
-            **news_page_dict,
-            'contained_urls': ''.join(news_page_dict['contained_urls'].keys())
-        })
-        self.minhash = self.__calc_minhash(shingle_list=self.shingle_list)
+        if shingles_calc:
+            self.shingle_list = shingles_calc.create_all_shingles(str_dict_to_shingle={
+                **news_page_dict,
+                'contained_urls': ''.join(news_page_dict['contained_urls'].keys())
+            })
+            self.minhash = self.__calc_minhash(shingle_list=self.shingle_list)
 
     def __calc_minhash(self, shingle_list):
         """
@@ -198,6 +205,22 @@ class NewsPage:
 
     def get_minhash(self):
         return self.minhash
+
+    def get_news_data(self):
+        """
+        Return data in format:
+        {'title': str, 'content': str, 'contained_urls': {URL: URL_TITLE}}
+
+        Returns:
+            Dict[str, Any]:
+                The data in the specific format.
+        """
+        ret = {
+            'title': self.news_title,
+            'content': self.news_content,
+            'contained_urls': self.news_contained_urls
+        }
+        return ret
 
 
 class SimilarTexts:
@@ -258,15 +281,11 @@ class SimilarTexts:
 
         # region DEFAULT INITS
         if parameters is None:
-            parameters = {
-                'title': [(2, 3), 'WORDS'],
-                'content': [(5, 7), 'WORDS'],
-                'contained_urls': [(3, 4), 'WORDS']
-            }
+            parameters = DEFAULT_PARAMETERS
 
         # Initialize the object for clusterization (same as self.__init_clusterization())
         self.fitted_clustering = False
-        self.clusters = None
+        self.clusters: Optional[List[List[str]]] = None
         self.noise_points = None
         self.origin_points = None
         self.key_to_cluster_index = None
@@ -295,6 +314,7 @@ class SimilarTexts:
         self.LSH_FNAME = "lsh"
         self.MAPPING_FNAME = "key_to_cluster_index"
         self.CLUSTERS_FNAME = "clusters"
+        self.NOISE_FNAME = "noise"
         self.XIN_TO_TEXTLIST_FNAME = "X_in__to__text_list"
         # endregion FNAMES
 
@@ -329,6 +349,32 @@ class SimilarTexts:
         # endregion INIT THE DB
 
     # region HELPERS
+    @staticmethod
+    def get__news_json_obj__from__results_path(results_path):
+        """
+        Args:
+            results_path (str):
+                The path to a JSON "database", of format:
+                    {base_url: {'Cnt': Cnt, 'results': {news_url: {'title': str, 'content': str,
+                    'contained_urls': {URL: URL_TITLE}}}}}
+        Returns:
+            Dict[str, Dict[str, Any]]:
+                The loaded news JSON object, of format:
+                    {news_url: {'title': str, 'content': str,
+                    'contained_urls': {URL: URL_TITLE}}}
+        """
+        with open(results_path, 'r') as fin:
+            results = json.load(fin)
+
+            news_json_obj: Dict[str, Dict[str, Any]] = dict(sum([
+                [
+                    (news_url, NewsPage(news_url=news_url,
+                                        news_page_dict=news_page_dict).get_news_data())
+                    for news_url, news_page_dict in results_per_site['results'].items()
+                ] for results_per_site in results.values()
+            ], []))
+        return news_json_obj
+
     def __get_news_page_from_info(self, news_url, news_title=None, news_content=None, news_contained_urls=None):
         """
         Gets a NewsPage object from news info.
@@ -600,11 +646,12 @@ class SimilarTexts:
         ]
         # NOISE POINTS
         noise_points = get_real_cluster(class_member_mask=(labels == -1))
+        self.save_to_pickles(data=self.noise_points, fname=self.NOISE_FNAME)
         del X_in, X_in__to__text_list
         gc.collect()
 
         # Sort the clusters and maybe save them
-        clusters = self.sort_clusters(clusters)
+        clusters: List[List[str]] = self.sort_clusters(clusters)
         self.save_to_pickles(data=clusters, fname=self.CLUSTERS_FNAME)
 
         logging.info(f'It took {(time.time() - start_time): .3f} seconds to get and save the clusters.')
@@ -617,7 +664,51 @@ class SimilarTexts:
         logging.info(f"Number of non-noise points: {n_OK_}")
         # endregion Get the clusters and noise points
 
-        # region REMOVE NOISE POINTS from database and lsh
+        # Remove noise points from database and lsh
+        self.remove_noise_points_from_fitting(noise_points=noise_points,
+                                              keep_database_in_memory=keep_database_in_memory,
+                                              keep_lsh_in_memory=keep_lsh_in_memory)
+        # endregion CLUSTERS
+
+        if not self.save_noise_points:
+            noise_points = None
+        gc.collect()
+        self.noise_points = noise_points
+
+        self.clusters = clusters
+        self.key_to_cluster_index = self.__get_key_to_cluster_index(self.clusters)
+        self.fitted_clustering = True
+
+        gc.collect()
+
+        return self
+
+    def remove_noise_points_from_fitting(self, noise_points=None, *,
+                                         keep_database_in_memory=True, keep_lsh_in_memory=True):
+        """
+        Removes noise points from the fitted Database / LSH.
+
+        Args:
+            noise_points (List[str]):
+                The noise points to remove.
+                If None, will get from .pkl, but only if self.fitted_clustering.
+            keep_database_in_memory (bool):
+                Should keep the database in RAM at the end of the removal?
+            keep_lsh_in_memory (bool):
+                Should keep the LSH in RAM at the end of the removal?
+        Returns:
+            SimilarTexts:
+                The fitted SimilarTexts self.
+        """
+
+        if not noise_points:
+            if not self.fitted_clustering:
+                logging.error("Error, clustering must be fitted if noise_points aren't provided. "
+                              "Please call fit_clustering() "
+                              "before trying to remove the noise points from the Database / LSH!")
+                return
+            noise_points = self.load_from_pickles(fname=self.NOISE_FNAME)
+
         logging.info("Removing noise points from database and LSH...")
         start_time = time.time()
 
@@ -625,7 +716,7 @@ class SimilarTexts:
         for key in tqdm(noise_points, desc='Removing noise points from database'):
             del self.database[key]
         self.save_to_pickles(data=self.database, fname=self.DATABASE_FNAME)
-        if keep_database_in_memory:
+        if not keep_database_in_memory:
             del self.database
             gc.collect()
 
@@ -634,26 +725,14 @@ class SimilarTexts:
             for key in tqdm(noise_points, desc='Removing noise points from lsh'):
                 self.lsh.remove(key)
             self.save_to_pickles(data=self.lsh, fname=self.LSH_FNAME)
-            if keep_lsh_in_memory:
+            if not keep_lsh_in_memory:
                 del self.lsh
                 gc.collect()
 
+        print("lsh", self.lsh)
+
         logging.info(f'It took {(time.time() - start_time): .3f} seconds to remove the noise points.')
-        # endregion REMOVE NOISE POINTS from database and lsh
-        # endregion CLUSTERS
-
-        if not self.save_noise_points:
-            noise_points = None
-        self.clusters = clusters
-        self.noise_points = noise_points
-
-        self.key_to_cluster_index = self.__get_key_to_cluster_index(self.clusters)
-
-        self.fitted_clustering = True
-
-        gc.collect()
-
-        return self
+        return
 
     # endregion FITTING
 
@@ -744,7 +823,7 @@ class SimilarTexts:
             self.key_to_cluster_index[key]
             for key in similar_news.keys()
         ]).most_common()
-        # TODO: CONTINUE
+        # TODO: CONTINUE with the percentages as well
 
         # endregion FIND THE SIMILAR CLUSTERS
 
@@ -754,8 +833,10 @@ class SimilarTexts:
         if cluster_index is None:  # Not found in existing clusters, rebuild
             # Choose the most predominant one
             predominant_cluster_index, predominant_cluster_count = clusters_indices_counts[0]
-            # Check that the percentage the cluster is found is higher than the minimum from the config
-            if predominant_cluster_count / len(similar_news) > self.predominant_cluster_min_percentage:
+            # Check that the predominant_cluster_count is higher than the minimum
+            # As well as that the percentage the cluster is found is higher than the minimum
+            if (predominant_cluster_count >= self.min_samples and
+                    predominant_cluster_count / len(similar_news) > self.predominant_cluster_min_percentage):
                 logging.info(f"text_clustering-predict_single() - Found a cluster that has keys similar to "
                              f"the key: {key}")
                 # If it is, then get the most predominant cluster
@@ -777,7 +858,7 @@ class SimilarTexts:
     #
     #     Returns:
     #         Dict[str, float]:
-    #             A dict with keys as the similar news URLs, and the values the .
+    #             A dict with keys as the news URLs, how confident we are they are origin points.
     #     """
     #
     #     if not self.fitted_similarity or not self.fitted_clustering:

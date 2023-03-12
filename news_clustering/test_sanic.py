@@ -1,9 +1,28 @@
 import json
+import logging
 
 import requests
 
-if __name__ == '__main__':
-    # POC
+from news_clustering.api.similar_texts import SimilarTexts
+
+
+def test_training():
+    print("Started training and getting the clusters")
+
+    news_json_obj = SimilarTexts.get__news_json_obj__from__results_path(results_path="../news_crawler/results.json")
+    r = requests.post('http://localhost:8000/news-clustering/train-get-clusters', json={
+        'news_json_obj': news_json_obj,
+        'should_fit_similarity': True,
+    })
+
+    print(f"Training output (status_code={r.status_code}):")
+    print(json.dumps(r.json(), indent=4))
+    return r.json()
+
+
+def test_similar_news():
+    print("Started getting similar news")
+
     test_news_content = '''ealthcare, Education & Research, and Retail are among the verticals most targeted on the 
     Coronavirus heatmap. As the Coronavirus pandemic continues, cybercriminals have started piggybacking news of the 
     crisis to deliver malware, conduct phishing, and even perform online fraud by preying on the panic caused by a 
@@ -61,12 +80,33 @@ if __name__ == '__main__':
     Here\u2019s what you should know With countries straining to find ways to contain and even stop the spread of 
     COVID-19 infections, the average user/citizen is undoubtedly seeking help and information from any online source 
     on how to stay safe. However, that information may not always come from a reputable source. Malware is a di'''
-    r = requests.post('http://localhost:8000/similar_news/query', json={
+
+    r = requests.post('http://localhost:8000/news-clustering/get-similar-news', json={
         'url': 'https://www.bitdefender.com/blog/labs/5-times-more-coronavirus-themed-malware-reports-during-march/',
         'title': "5 Times More Coronavirus-themed Malware Reports during March",
         'content': test_news_content,
         # 'urls': None
     })
 
-    print(r.status_code)
+    print(f"Similar News output (status_code={r.status_code}):")
     print(json.dumps(r.json(), indent=4))
+    return r.json()
+
+
+if __name__ == '__main__':
+    # debug = not getattr(app.config, 'NO_DEBUG', False)
+    debug = True
+    if debug:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            handlers=[
+                logging.FileHandler("debug_test.log", encoding="utf-8"),
+                logging.StreamHandler()
+            ]
+        )
+
+    # POC
+    test_training()
+    test_similar_news()

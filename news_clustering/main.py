@@ -3,7 +3,8 @@ from sanic import Sanic
 import logging
 
 app = Sanic('news')
-app.add_route(handlers.query, '/news_clustering/query', methods=['GET', 'POST'])
+app.add_route(handlers.train_and_get_clusters, '/news-clustering/train-get-clusters', methods=['GET', 'POST'])
+app.add_route(handlers.get_similar_news, '/news-clustering/get-similar-news', methods=['GET', 'POST'])
 
 if __name__ == '__main__':
     # debug = not getattr(app.config, 'NO_DEBUG', False)
@@ -14,7 +15,7 @@ if __name__ == '__main__':
             format="%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
             handlers=[
-                logging.FileHandler("debug.log", encoding="utf-8"),
+                logging.FileHandler("debug_API.log", encoding="utf-8"),
                 logging.StreamHandler()
             ]
         )
