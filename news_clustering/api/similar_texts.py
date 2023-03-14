@@ -559,12 +559,14 @@ class SimilarTexts:
         self.save_to_pickles(data=key_to_cluster_index, fname=self.MAPPING_FNAME)
         return key_to_cluster_index
 
-    def fit_clustering(self, *, keep_database_in_memory=True, keep_lsh_in_memory=True):
+    def fit_clustering(self, *, remove_noise_points=False, keep_database_in_memory=True, keep_lsh_in_memory=True):
         """
         Uses the already calculated `MinHashes <https://ekzhu.com/datasketch/minhash.html>`_
         of NewsPages to clusterize them together.
 
         Args:
+            remove_noise_points (bool):
+                Should remove the noise points from the database and LSH?
             keep_database_in_memory (bool):
                 Should keep the database in RAM at the end of the fitting?
             keep_lsh_in_memory (bool):
@@ -665,9 +667,15 @@ class SimilarTexts:
         # endregion Get the clusters and noise points
 
         # Remove noise points from database and lsh
-        self.remove_noise_points_from_fitting(noise_points=noise_points,
-                                              keep_database_in_memory=keep_database_in_memory,
-                                              keep_lsh_in_memory=keep_lsh_in_memory)
+        if remove_noise_points:
+            self.remove_noise_points_from_fitting(noise_points=noise_points,
+                                                  keep_database_in_memory=keep_database_in_memory,
+                                                  keep_lsh_in_memory=keep_lsh_in_memory)
+        else:
+            if keep_database_in_memory:
+                self.database: Dict[str, NewsPage] = self.load_from_pickles(fname=self.DATABASE_FNAME)
+            if keep_lsh_in_memory and self.fitted_similarity:
+                self.lsh: MinHashLSH = self.load_from_pickles(fname=self.LSH_FNAME)
         # endregion CLUSTERS
 
         if not self.save_noise_points:
@@ -728,8 +736,6 @@ class SimilarTexts:
             if not keep_lsh_in_memory:
                 del self.lsh
                 gc.collect()
-
-        print("lsh", self.lsh)
 
         logging.info(f'It took {(time.time() - start_time): .3f} seconds to remove the noise points.')
         return
@@ -822,6 +828,7 @@ class SimilarTexts:
         clusters_indices_counts: List[Tuple[int, int]] = Counter([
             self.key_to_cluster_index[key]
             for key in similar_news.keys()
+            if key in self.key_to_cluster_index
         ]).most_common()
         # TODO: CONTINUE with the percentages as well
 

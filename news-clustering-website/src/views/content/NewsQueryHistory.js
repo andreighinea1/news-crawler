@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useRef, useCallback} from 'react'
+import React, {useCallback, useEffect, useRef, useState} from 'react'
 import {Button, Input} from 'components/ui'
 import {DataTable} from 'components/shared'
 import debounce from 'lodash/debounce'
@@ -6,7 +6,6 @@ import axios from 'axios'
 import appConfig from 'configs/app.config'
 import {useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
-import dateToString from "../../utils/dateToString";
 import sortBy from "../../utils/sortBy";
 
 const {apiPrefix} = appConfig
@@ -16,7 +15,7 @@ const {apiPrefix} = appConfig
 // TODO: Add the SubComponent to the table rows
 
 
-const QueryHistory = () => {
+const NewsQueryHistory = () => {
 
     const [data, setData] = useState([])
     const [loading, setLoading] = useState(false)
@@ -52,7 +51,7 @@ const QueryHistory = () => {
 
 
     const handleAction = (cellProps) => {
-        navigate("/query-result", {replace: true, state: {similarArticles: cellProps.cell.value.similarArticles}});
+        navigate("/news-query-result", {replace: true, state: {similarArticles: cellProps.cell.value.similarArticles}});
     }
 
     const columns = [
@@ -145,4 +144,4 @@ const QueryHistory = () => {
     )
 }
 
-export default QueryHistory
+export default NewsQueryHistory

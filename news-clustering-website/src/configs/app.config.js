@@ -1,6 +1,6 @@
 const appConfig = {
     apiPrefix: '/api',
-    authenticatedEntryPath: '/search-menu-similar-news',
+    authenticatedEntryPath: '/search-menu-news-by-title',
     unAuthenticatedEntryPath: '/sign-in',
     tourPath: '',
     enableMock: true

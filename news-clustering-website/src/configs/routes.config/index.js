@@ -7,21 +7,21 @@ export const publicRoutes = [
 
 export const protectedRoutes = [
     {
-        key: 'searchSimilarNews',
-        path: '/search-menu-similar-news',
-        component: React.lazy(() => import('views/content/SearchSimilarNews')),
+        key: 'searchNewsByTitle',
+        path: '/search-menu-news-by-title',
+        component: React.lazy(() => import('views/content/SearchNewsByTitle')),
         authority: [],
     },
     {
-        key: 'queryHistory',
-        path: '/search-menu-query-history',
-        component: React.lazy(() => import('views/content/QueryHistory')),
+        key: 'newsQueryHistory',
+        path: '/search-menu-news-query-history',
+        component: React.lazy(() => import('views/content/NewsQueryHistory')),
         authority: [],
     },
     {
-        key: 'queryResult',
-        path: '/query-result',
-        component: React.lazy(() => import('views/content/QueryResult')),
+        key: 'newsQueryResult',
+        path: '/news-query-result',
+        component: React.lazy(() => import('views/content/NewsQueryResult')),
         authority: [],
     },
 ]

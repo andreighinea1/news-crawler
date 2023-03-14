@@ -1,10 +1,10 @@
-import React, { useState } from 'react'
+import React from 'react'
 import {Button} from 'components/ui'
-import { HiOutlineSearch } from 'react-icons/hi'
+import {HiOutlineSearch} from 'react-icons/hi'
 
-const SearchSimilarNewsButton = (props) => {
+const SearchNewsByTitleButton = (props) => {
 
-    const { size, shape, loading, onClick } = props
+    const {size, shape, loading, onClick} = props
 
     return (
         <div className="flex-wrap inline-flex xl:flex items-center gap-2">
@@ -12,7 +12,7 @@ const SearchSimilarNewsButton = (props) => {
                     variant="solid"
                     onClick={onClick}
                     loading={loading}
-                    icon={<HiOutlineSearch />}
+                    icon={<HiOutlineSearch/>}
                     size={size}
                     shape={shape}
             >
@@ -22,4 +22,4 @@ const SearchSimilarNewsButton = (props) => {
     )
 }
 
-export default SearchSimilarNewsButton
+export default SearchNewsByTitleButton

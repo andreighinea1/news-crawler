@@ -5,8 +5,8 @@ import {
 } from 'react-icons/hi'
 
 const navigationIcon = {
-    searchSimilarNews: <HiOutlineDocumentSearch />,
-    queryHistory: <HiOutlineNewspaper />,
+    searchNewsByTitle: <HiOutlineDocumentSearch />,
+    newsQueryHistory: <HiOutlineNewspaper />,
 }
 
 export default navigationIcon

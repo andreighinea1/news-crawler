@@ -14,21 +14,21 @@ const navigationConfig = [
 		authority: [],
 		subMenu: [
             {
-                key: 'searchMenu.searchSimilarNews',
-                path: '/search-menu-similar-news',
-                title: 'Search Similar News',
-                translateKey: 'nav.searchMenu.searchSimilarNews',
-                icon: 'searchSimilarNews',
+                key: 'searchMenu.searchNewsByTitle',
+                path: '/search-menu-news-by-title',
+                title: 'Search News By Title',
+                translateKey: 'nav.searchMenu.searchNewsByTitle',
+                icon: 'searchNewsByTitle',
                 type: NAV_ITEM_TYPE_ITEM,
                 authority: [],
                 subMenu: []
             },
             {
-                key: 'searchMenu.queryHistory',
-                path: '/search-menu-query-history',
-                title: 'Query History',
-                translateKey: 'nav.searchMenu.queryHistory',
-                icon: 'queryHistory',
+                key: 'searchMenu.newsQueryHistory',
+                path: '/search-menu-news-query-history',
+                title: 'News Query History',
+                translateKey: 'nav.searchMenu.newsQueryHistory',
+                icon: 'newsQueryHistory',
                 type: NAV_ITEM_TYPE_ITEM,
                 authority: [],
                 subMenu: []

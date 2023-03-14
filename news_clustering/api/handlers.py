@@ -49,7 +49,9 @@ async def train_and_get_clusters(request):
         if should_fit_similarity:  # Better do it before fit_clustering(), because of the removal of noise points
             similar_texts.fit_similarity()
 
-        similar_texts.fit_clustering()
+        similar_texts.fit_clustering(remove_noise_points=False,
+                                     keep_database_in_memory=True,
+                                     keep_lsh_in_memory=True)
 
         result = {
             'clusters': similar_texts.clusters
@@ -82,7 +84,7 @@ async def get_similar_news(request):
     urls = params.get('urls', dict())
 
     result = {
-        'news_clustering': similar_texts.get_similar_news(
+        'similar_news': similar_texts.get_similar_news(
             news_url=url,
             news_title=title,
             news_content=content,

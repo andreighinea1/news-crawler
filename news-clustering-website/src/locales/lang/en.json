@@ -2,8 +2,8 @@
     "nav": {
         "searchMenu": {
             "menu": "Search Menu",
-            "searchSimilarNews": "Search Similar News",
-            "queryHistory": "Query History"
+            "searchNewsByTitle": "Search News By Title",
+            "newsQueryHistory": "News Query History"
         }
     }
 }

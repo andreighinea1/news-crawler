@@ -1,17 +1,16 @@
 import React, {useState} from 'react'
 import ControlledInput from "./ControlledInput";
-import SearchSimilarNewsButton from "./SearchSimilarNewsButton";
+import SearchNewsByTitleButton from "./SearchNewsByTitleButton";
 import axios from "axios";
 import appConfig from 'configs/app.config'
 import {useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
 import dateToString from "../../utils/dateToString";
-import {ScrollBar} from "../../components/ui";
 
 const {apiPrefix} = appConfig
 
 
-const SearchSimilarNews = () => {
+const SearchNewsByTitle = () => {
 
     const [inputValue, setInputValue] = useState('');
     const [inputDisabled, setInputDisabled] = useState(false);
@@ -54,7 +53,7 @@ const SearchSimilarNews = () => {
                         setInputDisabled(false);
                         setInputValue('');
 
-                        navigate("/search-menu-query-history");
+                        navigate("/search-menu-news-query-history");
                     });
                 }
             });
@@ -75,7 +74,7 @@ const SearchSimilarNews = () => {
 
     const buttonContent =
         (
-            <SearchSimilarNewsButton
+            <SearchNewsByTitleButton
                 size="lg"
                 loading={loading}
                 onClick={onClick}
@@ -102,4 +101,4 @@ const SearchSimilarNews = () => {
     )
 }
 
-export default SearchSimilarNews
+export default SearchNewsByTitle

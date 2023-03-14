@@ -5,7 +5,7 @@ import paginate from "../../utils/paginate";
 import dateToString from "../../utils/dateToString";
 import sortBy from "../../utils/sortBy";
 
-const QueryResult = () => {
+const NewsQueryResult = () => {
     const location = useLocation();
     const [data, setData] = useState([])
     const [loading, setLoading] = useState(false)
@@ -65,7 +65,7 @@ const QueryResult = () => {
 
                 // Parse date to be more human-readable
                 const newDate = dateToString(new Date(article.publishedAt));
-                if (newDate !== "NaN-NaN-NaN, Invalid Date"){
+                if (newDate !== "NaN-NaN-NaN, Invalid Date") {
                     article.publishedAt = newDate;
                 }
             })
@@ -102,4 +102,4 @@ const QueryResult = () => {
     )
 }
 
-export default QueryResult
+export default NewsQueryResult

@@ -109,4 +109,5 @@ if __name__ == '__main__':
 
     # POC
     test_training()
+    print()
     test_similar_news()
