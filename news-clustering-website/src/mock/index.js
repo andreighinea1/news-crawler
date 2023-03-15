@@ -48,5 +48,7 @@ export default function mockServer({environment = 'test'}) {
         }
     };
 
+    // localStorage.removeItem('db');
+
     return server;
 }

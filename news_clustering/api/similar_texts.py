@@ -168,7 +168,7 @@ class NewsPage:
         if shingles_calc:
             self.shingle_list = shingles_calc.create_all_shingles(str_dict_to_shingle={
                 **news_page_dict,
-                'contained_urls': ''.join(news_page_dict['contained_urls'].keys())
+                'contained_urls': ''.join(self.news_contained_urls.keys())
             })
             self.minhash = self.__calc_minhash(shingle_list=self.shingle_list)
 

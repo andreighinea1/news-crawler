@@ -50,8 +50,27 @@ const NewsQueryHistory = () => {
     }
 
 
-    const handleAction = (cellProps) => {
-        navigate("/news-query-result", {replace: true, state: {similarArticles: cellProps.cell.value.similarArticles}});
+    const handleSearchedArticles = (cellProps) => {
+        navigate("/news-query-result", {
+            replace: true,
+            state: {searchedArticles: cellProps.cell.value.searchedArticles}
+        });
+    }
+
+
+    const handleSeeClusters = (cellProps) => {
+        navigate("/news-clusters-result", {
+            replace: true,
+            state: {formedClusters: cellProps.cell.value.formedClusters}
+        });
+    }
+
+
+    const handleSimilarNews = (cellProps) => {
+        navigate("/similar-news-result", {
+            replace: true,
+            state: {similarNews: cellProps.cell.value.similarNews}
+        });
     }
 
     const columns = [
@@ -74,7 +93,19 @@ const NewsQueryHistory = () => {
             Header: '',
             id: 'action',
             accessor: (row) => row,
-            Cell: props => <Button size="xs" onClick={() => handleAction(props)}>See Details</Button>
+            Cell: props => <Button size="xs" onClick={() => handleSearchedArticles(props)}>See Details</Button>
+        },
+        {
+            Header: '',
+            id: 'clusters',
+            accessor: (row) => row,
+            Cell: props => <Button size="xs" onClick={() => handleSeeClusters(props)}>See Clusters</Button>
+        },
+        {
+            Header: '',
+            id: 'similarity',
+            accessor: (row) => row,
+            Cell: props => <Button size="xs" onClick={() => handleSimilarNews(props)}>See Similar News</Button>
         },
     ]
 
@@ -99,17 +130,27 @@ const NewsQueryHistory = () => {
             if (response.data) {
                 const data = response.data.data;
 
-                data.forEach(article => {
-                    article.dateSortId = Date.parse(article.publishedAt)  // Used for sorting
-                    article.articlesCount = article.similarArticles.length  // Just a count of articles
-                })
-                if (tableData.sort.key !== '' && tableData.sort.order !== '') {
-                    data.sort(sortBy(
-                        tableData.sort.key,
-                        tableData.sort.order === 'desc',
-                        null,
-                        false)
-                    )
+                try {
+                    data.forEach(article => {
+                        article.dateSortId = Date.parse(article.publishedAt)  // Used for sorting
+                        article.articlesCount = article.searchedArticles.length  // Just a count of articles
+                    })
+                    if (tableData.sort.key !== '' && tableData.sort.order !== '') {
+                        data.sort(sortBy(
+                            tableData.sort.key,
+                            tableData.sort.order === 'desc',
+                            null,
+                            false)
+                        )
+                    }
+                } catch (e) {
+                    console.log(data)
+
+
+                    data.forEach(article => {
+                        article.dateSortId = Date.parse(article.publishedAt)  // Used for sorting
+                        article.articlesCount = article.searchedArticles.length  // Just a count of articles
+                    })
                 }
 
                 setData(data);

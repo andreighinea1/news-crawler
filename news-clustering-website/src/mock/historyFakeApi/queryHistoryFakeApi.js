@@ -7,12 +7,12 @@ import dateToString from "../../utils/dateToString";
 export default function queryHistoryFakeApi(server, apiPrefix) {
 
     server.post(`${apiPrefix}/add-query-history`, (schema, {requestBody}) => {
-        const {uid, url, similarArticles} = JSON.parse(requestBody)
+        const {uid, url, searchedArticles} = JSON.parse(requestBody)
 
         const newQueryHistoryEntry = {
             uid,
             url,
-            similarArticles,
+            searchedArticles,
             date: dateToString(new Date())
         }
 
