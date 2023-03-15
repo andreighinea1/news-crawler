@@ -1,9 +1,10 @@
 import React, {useEffect, useState} from 'react'
-import {useLocation} from 'react-router-dom';
+import {useLocation, useNavigate} from 'react-router-dom';
 import {DataTable} from "../../components/shared";
 import paginate from "../../utils/paginate";
 import dateToString from "../../utils/dateToString";
 import sortBy from "../../utils/sortBy";
+import {Button} from 'components/ui'
 
 const NewsQueryResult = () => {
     const location = useLocation();
@@ -21,6 +22,18 @@ const NewsQueryResult = () => {
             }
         }
     )
+    let navigate = useNavigate();
+
+    const handleSimilarNews = (cellProps) => {
+        navigate("/similar-news-result", {
+            replace: true,
+            state: {
+                title: cellProps.cell.value.title,
+                content: cellProps.cell.value.content,
+                url: cellProps.cell.value.url,
+            }
+        });
+    }
 
     const columns = [
         {
@@ -37,6 +50,12 @@ const NewsQueryResult = () => {
             Header: 'Publish Time',
             accessor: 'publishedAt',
             sortable: true,
+        },
+        {
+            Header: '',
+            id: 'similarity',
+            accessor: (row) => row,
+            Cell: props => <Button size="xs" onClick={() => handleSimilarNews(props)}>See Similar News</Button>
         },
     ]
 

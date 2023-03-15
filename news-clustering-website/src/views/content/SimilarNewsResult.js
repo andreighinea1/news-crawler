@@ -5,6 +5,8 @@ import paginate from "../../utils/paginate";
 import dateToString from "../../utils/dateToString";
 import sortBy from "../../utils/sortBy";
 
+const getSimilarNewsBaseUrl = 'http://localhost:8000/news-clustering/get-similar-news'
+
 const NewsQueryResult = () => {
     const location = useLocation();
     const [data, setData] = useState([])
@@ -58,33 +60,57 @@ const NewsQueryResult = () => {
         const fetchData = async () => {
             setLoading(true);
 
-            const searchedArticles = [...location.state.searchedArticles]
-            searchedArticles.forEach(article => {
-                // Used for sorting
-                article.dateSortId = Date.parse(article.publishedAt)
+            const url = location.state.url;
+            const title = location.state.title;
+            const content = location.state.content;
 
-                // Parse date to be more human-readable
-                const newDate = dateToString(new Date(article.publishedAt));
-                if (newDate !== "NaN-NaN-NaN, Invalid Date") {
-                    article.publishedAt = newDate;
+            let similarNews = [];
+            fetch(new Request(getSimilarNewsBaseUrl), {
+                method: "POST",
+                body: JSON.stringify({
+                    url: url,
+                    title: title,
+                    content: content,
+                    urls: null,
+                }),
+                headers: {
+                    "Content-Type": "application/json"
                 }
             })
-            if (tableData.sort.key !== '' && tableData.sort.order !== '') {
-                searchedArticles.sort(sortBy(
-                    tableData.sort.key,
-                    tableData.sort.order === 'desc',
-                    null,
-                    false)
-                )
-            }
+                .then(response2 => response2.json())
+                .then(res2 => {
+                    if (res2 && res2.similar_news.length > 0) {
+                        similarNews = [...res2.similar_news];
 
-            setData(paginate(
-                searchedArticles,
-                tableData.pageSize,
-                tableData.pageIndex)
-            );
-            setLoading(false);
-            setTableData(prevData => ({...prevData, ...{total: searchedArticles.length}}))
+                        similarNews.forEach(article => {
+                            // Used for sorting
+                            article.dateSortId = Date.parse(article.publishedAt)
+
+                            // Parse date to be more human-readable
+                            const newDate = dateToString(new Date(article.publishedAt));
+                            if (newDate !== "NaN-NaN-NaN, Invalid Date") {
+                                article.publishedAt = newDate;
+                            }
+                        })
+                        if (tableData.sort.key !== '' && tableData.sort.order !== '') {
+                            similarNews.sort(sortBy(
+                                tableData.sort.key,
+                                tableData.sort.order === 'desc',
+                                null,
+                                false)
+                            )
+                        }
+
+                        setData(paginate(
+                            similarNews,
+                            tableData.pageSize,
+                            tableData.pageIndex)
+                        );
+                    }
+
+                    setLoading(false);
+                    setTableData(prevData => ({...prevData, ...{total: similarNews.length}}));
+                });
         }
         fetchData();
     }, [tableData.pageIndex, tableData.sort, tableData.pageSize, tableData.query])

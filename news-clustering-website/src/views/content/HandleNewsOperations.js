@@ -10,7 +10,6 @@ import dateToString from "../../utils/dateToString";
 const {apiPrefix} = appConfig
 
 const trainGetClustersBaseUrl = 'http://localhost:8000/news-clustering/train-get-clusters'
-const getSimilarNewsBaseUrl = 'http://localhost:8000/news-clustering/get-similar-news'
 
 
 const HandleNewsOperations = () => {
@@ -26,7 +25,7 @@ const HandleNewsOperations = () => {
     const onClick = () => {
         setLoading(true);
         setInputDisabled(true);
-        console.log("Obtained URL: " + inputValue);
+        console.log("Obtained Search Query: " + inputValue);
 
         let date7DaysAgo = new Date();
         date7DaysAgo.setDate(date7DaysAgo.getDate() - 7);
@@ -37,6 +36,7 @@ const HandleNewsOperations = () => {
             'sortBy=popularity&' +
             'apiKey=a93ab4e177d84091af89c33507ad33d4';
 
+        // Query the News API
         fetch(new Request(newsApiUrl))
             .then(response => response.json())
             .then(res => {
@@ -45,25 +45,19 @@ const HandleNewsOperations = () => {
                 if (res.status === "ok") {
                     const searchedArticles = [...res.articles];
 
-                    // console.log(res.articles);
-                    // console.log(res.status);
-                    // console.log(res.totalResults);
-
-                    // 'news_json_obj': {news_url: {'title': str, 'content': str, 'contained_urls': {URL: URL_TITLE}}}
-
-                    // TODO: First get the content of the URLs
-
+                    // Get the clusters from the news
                     const news_json_obj = {};
                     searchedArticles.forEach(article => {
                         news_json_obj[article.url] = {
-                            title: "title1",  // TODO: Put in the title too
-                            content: "content12039127",  // TODO: Put in the content too
+                            title: article.title,
+                            content: article.content,
                             contained_urls: {
                                 // TODO: Put in the contained URLs too
                             },
-                        }
+                        };
                     });
 
+                    let formedClusters = undefined;
                     fetch(new Request(trainGetClustersBaseUrl), {
                         method: "POST",
                         body: JSON.stringify({
@@ -76,35 +70,28 @@ const HandleNewsOperations = () => {
                     })
                     .then(response2 => response2.json())
                     .then(res2 => {
-                        console.log(res2);
-
-                        if (res2.status === "ok") {
-
+                        if (res2) {
+                            formedClusters = [...res2.clusters];
+                            console.log("Found clusters:");
+                            console.log(formedClusters);
                         }
-                    });
 
-                    //     r = requests.post(getSimilarNewsBaseUrl, json={
-                    //         'url': 'https://www.bitdefender.com/blog/labs/5-times-more-coronavirus-themed-malware-reports-during-march/',
-                    //         'title': "5 Times More Coronavirus-themed Malware Reports during March",
-                    //         'content': test_news_content,
-                    // # 'urls': None
-                    // })
+                        // Add to the query history
+                        axios.post(
+                            `${apiPrefix}/add-query-history`,
+                            {
+                                uid,
+                                searchQuery: inputValue,
+                                searchedArticles,
+                                formedClusters,
+                            }
+                        ).then(response3 => {
+                            setLoading(false);
+                            setInputDisabled(false);
+                            setInputValue('');
 
-                    axios.post(
-                        `${apiPrefix}/add-query-history`,
-                        {
-                            uid,
-                            url: inputValue,
-                            searchedArticles: searchedArticles,
-                            // formedClusters: formedClusters,
-                            // similarNews: similarNews
-                        }
-                    ).then(response => {
-                        setLoading(false);
-                        setInputDisabled(false);
-                        setInputValue('');
-
-                        navigate("/search-menu-news-query-history");
+                            navigate("/search-menu-news-query-history");
+                        });
                     });
                 }
             });
