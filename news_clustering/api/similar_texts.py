@@ -20,6 +20,11 @@ DEFAULT_PARAMETERS = {
     'content': [(5, 7), 'WORDS'],
     'contained_urls': [(3, 4)]
 }
+DEFAULT_PERCENTAGES = {
+    'title': 0.55,
+    'content': 0.45,
+    'contained_urls': 0.0
+}
 
 
 class ShinglesCalc:
@@ -138,7 +143,7 @@ class ShinglesCalc:
 
 
 class NewsPage:
-    def __init__(self, news_url, news_page_dict, *, shingles_calc=None, num_perm=128):
+    def __init__(self, news_url, news_page_dict, *, shingles_calc=None, num_perm=128, percentages=None):
         """
         Calculates the MinHash for the news page.
 
@@ -153,26 +158,57 @@ class NewsPage:
                 If None, the object can only be used to retrieve the news_json_obj from the news_page_dict.
             num_perm (int):
                 The number of permutations for a MinHash.
+            percentages (Dict[str, float]):
+                Same format as parameters. Percentages that should constitute the MinHash.
         Returns:
             NewsPage:
                 The initialized news page class
         """
 
+        if percentages is None:
+            percentages = {k: v for k, v in DEFAULT_PERCENTAGES.items()}  # Make a copy
+
         self.news_title = news_page_dict.get('title', '')
         self.news_content = news_page_dict.get('content', '')
         self.news_contained_urls = news_page_dict.get('contained_urls', dict())
 
+        if not self.news_title:
+            percentages.pop('title')
+        if not self.news_content:
+            percentages.pop('content')
+        if not self.news_contained_urls:
+            percentages.pop('contained_urls')
+        _sum = sum(percentages.values())
+        self.num_perm_per_type: Dict[str, int] = {
+            k: int((v / _sum + 0.001) * num_perm)
+            for k, v in percentages.items()
+        }
+        _sum = sum(self.num_perm_per_type.values())
+        if _sum < num_perm:
+            self.num_perm_per_type = {
+                k: (v if i > 0 else v + num_perm - _sum)
+                for i, (k, v) in enumerate(self.num_perm_per_type.items())
+            }
+        elif _sum > num_perm:
+            self.num_perm_per_type = {
+                k: (v if i < len(self.num_perm_per_type) - 1 else v + num_perm - _sum)
+                for i, (k, v) in enumerate(self.num_perm_per_type.items())
+            }
+        self.num_perm_per_type = {k: v for k, v in self.num_perm_per_type.items() if v > 0}
+
+        if sum(self.num_perm_per_type.values()) != num_perm:
+            raise Exception(f"Num_perm shouldn't be different -> {sum(self.num_perm_per_type.values())} vs {num_perm}")
+
         self.news_url = news_url
-        self.num_perm = num_perm
+        self.num_perm_overall = num_perm
 
         if shingles_calc:
-            self.shingle_list = shingles_calc.create_all_shingles(str_dict_to_shingle={
-                **news_page_dict,
-                'contained_urls': ''.join(self.news_contained_urls.keys())
-            })
-            self.minhash = self.__calc_minhash(shingle_list=self.shingle_list)
+            self.minhash = self.__calc_minhash(
+                shingles_calc=shingles_calc
+            )
 
-    def __calc_minhash(self, shingle_list):
+    @staticmethod
+    def __calc_one_minhash_hash_values(shingle_list, num_perm):
         """
         Calculate the `MinHash <https://ekzhu.com/datasketch/minhash.html>`_
         for the provided key/shingles.
@@ -182,14 +218,58 @@ class NewsPage:
         Args:
             shingle_list (List[str]):
                 The shingles to calculate the MinHash for.
+            num_perm (int):
+                The number of permutations for a MinHash.
 
         Returns:
             LeanMinHash:
                 The LeanMinHash corresponding to the provided input.
         """
-        m = MinHash(num_perm=self.num_perm)
+        if num_perm == 0:
+            return None
+
+        m = MinHash(num_perm=num_perm)
         m.update_batch([s.encode('utf-8') for s in shingle_list])
-        return LeanMinHash(m)
+        return LeanMinHash(m).hashvalues
+
+    def __calc_minhash(self, shingles_calc):
+        title_shingle_list = shingles_calc.create_all_shingles(str_dict_to_shingle={
+            'title': self.news_title
+        })
+        content_shingle_list = shingles_calc.create_all_shingles(str_dict_to_shingle={
+            'content': self.news_content
+        })
+        contained_urls_shingle_list = shingles_calc.create_all_shingles(str_dict_to_shingle={
+            'contained_urls': ''.join(self.news_contained_urls.keys())
+        })
+
+        __hashvalues = []
+        title_hash_values = self.__calc_one_minhash_hash_values(
+            shingle_list=title_shingle_list,
+            num_perm=self.num_perm_per_type.get('title', 0)
+        )
+        if title_hash_values is not None:
+            __hashvalues.append(title_hash_values)
+
+        content_hash_values = self.__calc_one_minhash_hash_values(
+            shingle_list=content_shingle_list,
+            num_perm=self.num_perm_per_type.get('content', 0)
+        )
+        if content_hash_values is not None:
+            __hashvalues.append(content_hash_values)
+
+        contained_urls_hash_values = self.__calc_one_minhash_hash_values(
+            shingle_list=contained_urls_shingle_list,
+            num_perm=self.num_perm_per_type.get('contained_urls', 0)
+        )
+        if contained_urls_hash_values is not None:
+            __hashvalues.append(contained_urls_hash_values)
+
+        m = LeanMinHash(
+            seed=1,
+            hashvalues=np.concatenate(__hashvalues)
+        )
+        return m
 
     def jaccard(self, other):
         """Estimate the `Jaccard similarity`_ (resemblance) between the sets
@@ -225,7 +305,7 @@ class NewsPage:
 
 class SimilarTexts:
     def __init__(self, news_json_obj=None, *, results_path=None,
-                 threshold=0.6, num_perm=128, min_samples=3, eps=0.6,
+                 threshold=0.6, num_perm=128, min_samples=2, eps=0.6,
                  predominant_cluster_min_percentage=0.6,
                  parameters=None,
                  folder_out_path='OUT', overwrite=True, save_noise_points=False,

@@ -5,7 +5,6 @@ import axios from "axios";
 import appConfig from 'configs/app.config'
 import {useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
-import dateToString from "../../utils/dateToString";
 
 const {apiPrefix} = appConfig
 
@@ -27,12 +26,16 @@ const HandleNewsOperations = () => {
         setInputDisabled(true);
         console.log("Obtained Search Query: " + inputValue);
 
-        let date7DaysAgo = new Date();
-        date7DaysAgo.setDate(date7DaysAgo.getDate() - 7);
+        // let date7DaysAgo = new Date();
+        // date7DaysAgo.setDate(date7DaysAgo.getDate() - 7);
+
+        // let date29DaysAgo = new Date();
+        // date29DaysAgo.setDate(date29DaysAgo.getDate() - 29);
 
         const newsApiUrl = 'https://newsapi.org/v2/everything?' +
             'q=' + inputValue + '&' +
-            'from=' + dateToString(date7DaysAgo, true, false) + '&' +
+            // 'from=' + dateToString(date29DaysAgo, true, false) + '&' +
+            'from=2023-02-14&' +
             'sortBy=popularity&' +
             'apiKey=a93ab4e177d84091af89c33507ad33d4';
 
@@ -45,54 +48,60 @@ const HandleNewsOperations = () => {
                 if (res.status === "ok") {
                     const searchedArticles = [...res.articles];
 
-                    // Get the clusters from the news
-                    const news_json_obj = {};
-                    searchedArticles.forEach(article => {
-                        news_json_obj[article.url] = {
-                            title: article.title,
-                            content: article.content,
-                            contained_urls: {
-                                // TODO: Put in the contained URLs too
-                            },
-                        };
-                    });
-
-                    let formedClusters = undefined;
-                    fetch(new Request(trainGetClustersBaseUrl), {
-                        method: "POST",
-                        body: JSON.stringify({
-                            news_json_obj: news_json_obj,
-                            should_fit_similarity: true
-                        }),
-                        headers: {
-                            "Content-Type": "application/json"
-                        }
-                    })
-                    .then(response2 => response2.json())
-                    .then(res2 => {
-                        if (res2) {
-                            formedClusters = [...res2.clusters];
-                            console.log("Found clusters:");
-                            console.log(formedClusters);
-                        }
-
-                        // Add to the query history
-                        axios.post(
-                            `${apiPrefix}/add-query-history`,
-                            {
-                                uid,
-                                searchQuery: inputValue,
-                                searchedArticles,
-                                formedClusters,
-                            }
-                        ).then(response3 => {
-                            setLoading(false);
-                            setInputDisabled(false);
-                            setInputValue('');
-
-                            navigate("/search-menu-news-query-history");
+                    if (searchedArticles.length > 0) {
+                        // Get the clusters from the news
+                        const news_json_obj = {};
+                        searchedArticles.forEach(article => {
+                            news_json_obj[article.url] = {
+                                title: article.title,
+                                content: article.content,
+                                contained_urls: {
+                                    // TODO: Put in the contained URLs too
+                                },
+                            };
                         });
-                    });
+
+                        let formedClusters = undefined;
+                        fetch(new Request(trainGetClustersBaseUrl), {
+                            method: "POST",
+                            body: JSON.stringify({
+                                news_json_obj: news_json_obj,
+                                should_fit_similarity: true
+                            }),
+                            headers: {
+                                "Content-Type": "application/json"
+                            }
+                        })
+                            .then(response2 => response2.json())
+                            .then(res2 => {
+                                if (res2) {
+                                    formedClusters = [...res2.clusters];
+                                    console.log("Found clusters:");
+                                    console.log(formedClusters);
+                                }
+
+                                // Add to the query history
+                                axios.post(
+                                    `${apiPrefix}/add-query-history`,
+                                    {
+                                        uid,
+                                        searchQuery: inputValue,
+                                        searchedArticles,
+                                        formedClusters,
+                                    }
+                                ).then(response3 => {
+                                    setLoading(false);
+                                    setInputDisabled(false);
+                                    setInputValue('');
+
+                                    navigate("/search-menu-news-query-history");
+                                });
+                            });
+                    } else {
+                        setLoading(false);
+                        setInputDisabled(false);
+                        setInputValue('');
+                    }
                 }
             });
     }
