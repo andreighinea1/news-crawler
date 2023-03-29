@@ -9,8 +9,7 @@ from scrapy.http import Response
 from scrapy.utils.project import get_project_settings
 from scrapy.signalmanager import dispatcher
 
-from news_crawler import misc
-from news_crawler.misc import sort_dict_by_keys
+from helpers.misc import sort_dict_by_keys
 from news_crawler.spiders.blog_spider import BlogSpider
 
 # TODO-URGENT: Do something about JavaScript loaded webpages
@@ -43,7 +42,7 @@ def get_results(*add_to_process_functions):
     results = {
         source: {
             "Cnt": len(res_dict),
-            "results": misc.sort_dict_by_keys(res_dict)
+            "results": sort_dict_by_keys(res_dict)
         }
         for source, res_dict in temp_results.items()
     }

@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+from operator import itemgetter
 
 
 def save_to_pickles(*, data, folder_path: str = None, fname: str = None, full_file_path: str = None, overwrite=False):
@@ -28,3 +29,17 @@ def load_from_pickles(*, folder_path: str = None, fname: str = None, full_file_p
     with open(full_file_path, 'rb') as fin:
         data = pickle.load(fin)
     return data
+
+
+def sort_dict_by_values(d, reverse=False, top=None):
+    r = {k: v for k, v in sorted(d.items(), key=itemgetter(1), reverse=reverse)}
+    if top:
+        return dict(list(r.items())[:top])
+    return r
+
+
+def sort_dict_by_keys(d, reverse=False, top=None):
+    r = {k: v for k, v in sorted(d.items(), key=itemgetter(0), reverse=reverse)}
+    if top is not None:
+        return dict(list(r.items())[:top])
+    return r

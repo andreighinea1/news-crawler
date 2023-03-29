@@ -12,7 +12,8 @@ from datasketch import MinHash, MinHashLSH, LeanMinHash
 from sklearn.cluster import DBSCAN
 from tqdm.auto import tqdm
 
-from news_clustering.api import misc
+from helpers import misc
+from helpers.misc import sort_dict_by_values
 
 words_regex = re.compile(r'\W+')
 DEFAULT_PARAMETERS = {
@@ -167,6 +168,7 @@ class NewsPage:
 
         if percentages is None:
             percentages = {k: v for k, v in DEFAULT_PERCENTAGES.items()}  # Make a copy
+        percentages = sort_dict_by_values(percentages, reverse=True)
 
         self.news_title = news_page_dict.get('title', '')
         self.news_content = news_page_dict.get('content', '')
@@ -180,7 +182,7 @@ class NewsPage:
             percentages.pop('contained_urls')
         _sum = sum(percentages.values())
         self.num_perm_per_type: Dict[str, int] = {
-            k: int((v / _sum + 0.001) * num_perm)
+            k: int(v / _sum * num_perm)
             for k, v in percentages.items()
         }
         _sum = sum(self.num_perm_per_type.values())
@@ -190,10 +192,17 @@ class NewsPage:
                 for i, (k, v) in enumerate(self.num_perm_per_type.items())
             }
         elif _sum > num_perm:
-            self.num_perm_per_type = {
-                k: (v if i < len(self.num_perm_per_type) - 1 else v + num_perm - _sum)
-                for i, (k, v) in enumerate(self.num_perm_per_type.items())
-            }
+            sub_need = _sum - num_perm
+            for k, v in reversed(list(self.num_perm_per_type.items())):
+                if sub_need >= v:
+                    sub_need -= v
+                    self.num_perm_per_type[k] = 0
+                else:
+                    self.num_perm_per_type[k] -= sub_need
+                    sub_need = 0
+
+                if sub_need == 0:
+                    break
         self.num_perm_per_type = {k: v for k, v in self.num_perm_per_type.items() if v > 0}
 
         if sum(self.num_perm_per_type.values()) != num_perm:
@@ -305,7 +314,7 @@ class NewsPage:
 
 class SimilarTexts:
     def __init__(self, news_json_obj=None, *, results_path=None,
-                 threshold=0.6, num_perm=128, min_samples=2, eps=0.6,
+                 threshold=0.4, num_perm=128, min_samples=2, eps=0.6,
                  predominant_cluster_min_percentage=0.6,
                  parameters=None,
                  folder_out_path='OUT', overwrite=True, save_noise_points=False,

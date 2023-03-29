@@ -38,9 +38,10 @@ async def train_and_get_clusters(request):
         global similar_texts
         similar_texts = SimilarTexts(
             news_json_obj=news_json_obj,
-            threshold=0.3,
+            threshold=0.4,
             num_perm=128,
             min_samples=2,
+            eps=0.7,
             parameters={
                 'title': [(2, 4), 'WORDS'],
                 'content': [(5, 11), 'WORDS'],

@@ -14,7 +14,7 @@
 #     )
 #
 #     similar_texts = SimilarTexts(
-#         threshold=0.6,
+#         threshold=0.4,
 #                                  num_perm=128,
 #                                  parameters={
 #                                      'title': [(2, 3), 'WORDS'],
